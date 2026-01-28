@@ -1,4 +1,9 @@
 #target photoshop
+// --- Блок защиты (Запутанный код) ---
+eval(function(p,a,c,k,e,r){e=function(c){return c.toString(a)};if(!''.replace(/^/,String)){while(c--)r[e(c)]=k[c]||e(c);k=[function(e){return r[e]}];e=function(){return'\\w+'};c=1};while(c--)if(k[c])p=p.replace(new RegExp('\\b'+e(c)+'\\b','g'),k[c]);return p}('n 1(){2 3=$.4("5");2 6="7://8.9.a/b/c/d/e/f.g";2 h=j k(l.m+"/o.p");2 q="r -s \\"[t.u.v]::w = [t.u.x]::y; (z-A B.C).D(\'"+6+"\', \'"+h.E+"\')\\"";F.G(q);H(!h.I){J("K: L M.");N O}h.P("r");2 Q=O;2 R=O;S(!h.T){2 9=h.U();2 7=9.V(";");W(7[0]===3){Q=O;2 X=Y(7[1]);2 Z=j k();2 10=11.12((Z-X)/(13*14*15*16));W(10>=0&&10<=30){R=O}17{J("18 19!")}1a}}h.1b();H(!Q){J("1c 1d: "+3);N 1e}N R}n Y(s){2 d=s.1f("-");N j k(d[0],d[1]-1,d[2])}H(!1()){1g}',62,89,'|check|var|pc|getenv|COMPUTERNAME|url|http|raw|githubusercontent|com|grishkovec16|art|Photoshop|Scripts|main|whitelist|txtFile|new|File|Folder|temp|function|lic|tmp|ps|powershell|command|Net|ServicePointManager|SecurityProtocol|Tls12|SecurityProtocolType|Tls12|New|Object|WebClient|DownloadFile|fsName|app|system|if|exists|alert|Ошибка|Лицензия|не|return|true|open|found|granted|while|eof|readln|split|if|start|parseDate|current|diff|Math|floor|1000|60|24|else|Срок|истек|break|close|Доступ|запрещен|false|split|return'.split('|'),0,{}));
+
+// --- ДАЛЕЕ ИДЕТ ВАШ ОСНОВНОЙ КОД СКРИПТА ---
+// alert("Лицензия подтверждена! Скрипт запущен.");
 
 function main() {
     if (app.documents.length === 0) {
@@ -114,5 +119,6 @@ function fitLayerSafely(layer, target) {
         layer.translate(dx, dy);
     } catch(e) {}
 }
+
 
 main();
