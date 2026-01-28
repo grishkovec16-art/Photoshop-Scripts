@@ -43,4 +43,5 @@ function renameJpegsWithIndex() {
     alert("Готово! Все фотографии переименованы.");
 }
 
+
 renameJpegsWithIndex();
