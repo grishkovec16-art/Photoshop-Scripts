@@ -7,29 +7,25 @@ function main() {
     }
 
     var doc = app.activeDocument;
-    var rootFolder = Folder.selectDialog("Выберите общую папку с папками детей");
+    var rootFolder = Folder.selectDialog("Выберите папку с именами детей");
     if (!rootFolder) return;
 
-    // Получаем список всех папок первого уровня (папки детей)
-    var items = rootFolder.getFiles(function(f) { return f instanceof Folder; });
-    items.sort();
+    var folders = rootFolder.getFiles(function (f) { return f instanceof Folder; });
+    folders.sort();
 
     var studentIndex = 1;
 
-    for (var i = 0; i < items.length; i++) {
-        var folderChild = items[i];
-        var rootFolderName = decodeURI(folderChild.name);
-        
-        // РЕКУРСИВНЫЙ ПОИСК ФОТО (ищет даже в глубоких подпапках)
-        var photoFile = findFirstImageRecursive(folderChild);
-        
-        if (!photoFile) continue; // Если в папке и подпапках нет фото, пропускаем
+    // --- ЭТАП 1: РАССТАНОВКА ФОТО И ИМЕН ---
+    for (var i = 0; i < folders.length; i++) {
+        var personFolder = folders[i];
+        var rootFolderName = decodeURI(personFolder.name);
 
-        var baseID; // Для слоя Фото_
-        var textID; // Для слоя Имя_
-        var labelText;
+        var photoFile = findFirstImageRecursive(personFolder);
+        if (!photoFile) continue;
 
-        // ЛОГИКА ДЛЯ УЧИТЕЛЯ (по метке УЧ_)
+        var baseID, textID, labelText;
+
+        // Учитель / Ученик
         if (rootFolderName.indexOf("УЧ_") === 0) {
             baseID = "Учитель_1";
             textID = "Учитель_Имя_1";
@@ -41,46 +37,85 @@ function main() {
             studentIndex++;
         }
 
-        processVignette(doc, photoFile, labelText, baseID, textID);
+        processPerson(doc, photoFile, labelText, baseID, textID);
     }
 
-    alert("Готово! Все найденные фото привязаны к слоям.");
+    // --- ЭТАП 2: НАДЁЖНАЯ ПРИВЯЗКА IMG_ → Фото_/Учитель_ ---
+    applyClippingMasks(doc);
+
+    alert("Готово! Фотографии расставлены, привязаны и имена обновлены.");
 }
 
-function processVignette(doc, file, nameText, baseLayerName, textLayerName) {
+// =================================================
+// ================== ОСНОВНАЯ ЛОГИКА =================
+// =================================================
+
+function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
     try {
-        // 1. ЗАПОЛНЕНИЕ ТЕКСТА (Имя_N)
+        // 1. Имя
         var txtLayer = findLayer(doc, textLayerName);
         if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
+            txtLayer.name = nameText;
         }
 
-        // 2. ВСТАВКА ФОТО (Фото_N)
+        // 2. Фото
         var placeholder = findLayer(doc, baseLayerName);
-        if (placeholder) {
-            doc.activeLayer = placeholder;
+        if (!placeholder) return;
 
-            // Используем метод вставки из скрипта обложек
-            placeFile(file);
+        doc.activeLayer = placeholder;
+        placeSmartObject(file);
 
-            var photoLayer = doc.activeLayer;
-            photoLayer.name = "IMG_" + nameText;
-            
-            // Ставим фото точно над подложкой
-            photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
-            
-            // Подгоняем размер
-            fitToTarget(photoLayer, placeholder);
+        var photoLayer = doc.activeLayer;
+        photoLayer.name = "IMG_" + nameText;
 
-            // ПРИВЯЗКА (Clipping Mask) - Метод из рабочего скрипта обложек
-            createClippingMask();
-        }
+        // ВАЖНО: строго НАД подложкой
+        photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
+
+        fitToTarget(photoLayer, placeholder);
+
     } catch (err) {
-        $.writeln("Ошибка: " + nameText + " - " + err);
+        $.writeln("Ошибка: " + nameText + " → " + err);
     }
 }
 
-// Рекурсивный поиск первого изображения
+// =================================================
+// =============== ПРИВЯЗКА (FIX ДЛЯ УЧИТЕЛЯ) ===================
+// =================================================
+
+function applyClippingMasks(container) {
+    for (var i = 0; i < container.layers.length; i++) {
+        var lyr = container.layers[i];
+
+        if (lyr.typename === "LayerSet") {
+            applyClippingMasks(lyr);
+            continue;
+        }
+
+        if (lyr.name.indexOf("IMG_") !== 0) continue;
+
+        var below = getLayerBelow(container, i);
+        if (!below) continue;
+
+        // Проверяем Фото_ ИЛИ Учитель_
+        if (
+            below.typename === "ArtLayer" &&
+            (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0)
+        ) {
+            lyr.grouped = true; // ✅ Обтравочная маска
+        }
+    }
+}
+
+function getLayerBelow(container, index) {
+    if (index + 1 >= container.layers.length) return null;
+    return container.layers[index + 1];
+}
+
+// =================================================
+// ================= ВСПОМОГАТЕЛЬНЫЕ =================
+// =================================================
+
 function findFirstImageRecursive(folder) {
     var files = folder.getFiles();
     for (var i = 0; i < files.length; i++) {
@@ -95,21 +130,9 @@ function findFirstImageRecursive(folder) {
     return null;
 }
 
-// Команда создания обтравочной маски (аналог Ctrl+Alt+G)
-function createClippingMask() {
-    try {
-        var idGrpP = charIDToTypeID("GrpP");
-        var desc = new ActionDescriptor();
-        var ref = new ActionReference();
-        ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
-        desc.putReference(charIDToTypeID("null"), ref);
-        executeAction(idGrpP, desc, DialogModes.NO);
-    } catch (e) {}
-}
-
-function placeFile(path) {
+function placeSmartObject(file) {
     var desc = new ActionDescriptor();
-    desc.putPath(charIDToTypeID("null"), new File(path));
+    desc.putPath(charIDToTypeID("null"), new File(file));
     executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
 }
 
@@ -129,7 +152,7 @@ function fitToTarget(layer, target) {
     var b = target.bounds;
     var tw = b[2].as("px") - b[0].as("px");
     var th = b[3].as("px") - b[1].as("px");
-    
+
     var lb = layer.bounds;
     var lw = lb[2].as("px") - lb[0].as("px");
     var lh = lb[3].as("px") - lb[1].as("px");
@@ -137,9 +160,15 @@ function fitToTarget(layer, target) {
     var scale = Math.max(tw / lw, th / lh) * 100;
     layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
 
-    var dx = (b[0].as("px") + tw/2) - (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px"))/2);
-    var dy = (b[1].as("px") + th/2) - (layer.bounds[1].as("px") + (layer.bounds[3].as("px") - layer.bounds[1].as("px"))/2);
+    var dx = (b[0].as("px") + tw / 2) -
+        (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px")) / 2);
+
+    var dy = (b[1].as("px") + th / 2) -
+        (layer.bounds[1].as("px") + (layer.bounds[3].as("px") - layer.bounds[1].as("px")) / 2);
+
     layer.translate(dx, dy);
 }
+
+// =================================================
 
 main();
