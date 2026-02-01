@@ -25,7 +25,7 @@ function main() {
 
         var baseID, textID, labelText;
 
-        // Учитель / Ученик
+        // Логика Учитель / Ученик
         if (rootFolderName.indexOf("УЧ_") === 0) {
             baseID = "Учитель_1";
             textID = "Учитель_Имя_1";
@@ -40,10 +40,10 @@ function main() {
         processPerson(doc, photoFile, labelText, baseID, textID);
     }
 
-    // --- ЭТАП 2: НАДЁЖНАЯ ПРИВЯЗКА IMG_ → Фото_/Учитель_ ---
+    // --- ЭТАП 2: НАДЁЖНАЯ ПРИВЯЗКА (Clipping Mask) ---
     applyClippingMasks(doc);
 
-    alert("Готово! Фотографии расставлены, привязаны и имена обновлены.");
+    alert("Готово! Фотографии кадрированы по верхнему краю и привязаны.");
 }
 
 // =================================================
@@ -52,14 +52,14 @@ function main() {
 
 function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
     try {
-        // 1. Имя
+        // 1. Текст имени
         var txtLayer = findLayer(doc, textLayerName);
         if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
             txtLayer.name = nameText;
         }
 
-        // 2. Фото
+        // 2. Фотография
         var placeholder = findLayer(doc, baseLayerName);
         if (!placeholder) return;
 
@@ -69,10 +69,11 @@ function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
         var photoLayer = doc.activeLayer;
         photoLayer.name = "IMG_" + nameText;
 
-        // ВАЖНО: строго НАД подложкой
+        // Помещаем строго НАД подложкой
         photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
 
-        fitToTarget(photoLayer, placeholder);
+        // Умное кадрирование по ВЕРХНЕМУ краю
+        fitToTargetTop(photoLayer, placeholder);
 
     } catch (err) {
         $.writeln("Ошибка: " + nameText + " → " + err);
@@ -80,7 +81,36 @@ function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
 }
 
 // =================================================
-// =============== ПРИВЯЗКА (FIX ДЛЯ УЧИТЕЛЯ) ===================
+// ============ КАДРИРОВАНИЕ ПО ВЕРХУ =============
+// =================================================
+
+function fitToTargetTop(layer, target) {
+    var b = target.bounds;
+    var tw = b[2].as("px") - b[0].as("px"); // Ширина рамки
+    var th = b[3].as("px") - b[1].as("px"); // Высота рамки
+
+    var lb = layer.bounds;
+    var lw = lb[2].as("px") - lb[0].as("px"); // Ширина фото
+    var lh = lb[3].as("px") - lb[1].as("px"); // Высота фото
+
+    // Вычисляем масштаб так, чтобы заполнить ВСЮ область (по максимальному коэффициенту)
+    var scale = Math.max(tw / lw, th / lh) * 100;
+    
+    // Масштабируем относительно ВЕРХНЕГО центра
+    layer.resize(scale, scale, AnchorPosition.TOPCENTER);
+
+    // Выравниваем горизонтально по центру рамки
+    var dx = (b[0].as("px") + tw / 2) - 
+             (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px")) / 2);
+
+    // Прижимаем к ВЕРХНЕЙ границе рамки
+    var dy = b[1].as("px") - layer.bounds[1].as("px");
+
+    layer.translate(dx, dy);
+}
+
+// =================================================
+// =============== ПРИВЯЗКА (MASKING) ================
 // =================================================
 
 function applyClippingMasks(container) {
@@ -97,12 +127,9 @@ function applyClippingMasks(container) {
         var below = getLayerBelow(container, i);
         if (!below) continue;
 
-        // Проверяем Фото_ ИЛИ Учитель_
-        if (
-            below.typename === "ArtLayer" &&
-            (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0)
-        ) {
-            lyr.grouped = true; // ✅ Обтравочная маска
+        if (below.typename === "ArtLayer" &&
+            (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0)) {
+            lyr.grouped = true; // Создание обтравочной маски
         }
     }
 }
@@ -147,28 +174,5 @@ function findLayer(container, name) {
     }
     return null;
 }
-
-function fitToTarget(layer, target) {
-    var b = target.bounds;
-    var tw = b[2].as("px") - b[0].as("px");
-    var th = b[3].as("px") - b[1].as("px");
-
-    var lb = layer.bounds;
-    var lw = lb[2].as("px") - lb[0].as("px");
-    var lh = lb[3].as("px") - lb[1].as("px");
-
-    var scale = Math.max(tw / lw, th / lh) * 100;
-    layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
-
-    var dx = (b[0].as("px") + tw / 2) -
-        (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px")) / 2);
-
-    var dy = (b[1].as("px") + th / 2) -
-        (layer.bounds[1].as("px") + (layer.bounds[3].as("px") - layer.bounds[1].as("px")) / 2);
-
-    layer.translate(dx, dy);
-}
-
-// =================================================
 
 main();
