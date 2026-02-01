@@ -1,0 +1,110 @@
+#target photoshop
+
+function main() {
+    if (app.documents.length === 0) {
+        alert("Ошибка: Откройте PSD шаблон с названием слоя 'Основа_1'!");
+        return;
+    }
+
+    var doc = app.activeDocument;
+    var rootFolder = Folder.selectDialog("Выберите корневую папку с учениками");
+    if (!rootFolder) return;
+
+    var outputFolder = new Folder(rootFolder + "/Output_Ready");
+    if (!outputFolder.exists) outputFolder.create();
+
+    // Получаем список папок (игнорируя папку вывода)
+    var folders = rootFolder.getFiles(function(f) { 
+        return f instanceof Folder && f.name !== "Output_Ready"; 
+    });
+
+    for (var i = 0; i < folders.length; i++) {
+        var currentFolder = folders[i];
+        var images = currentFolder.getFiles(/\.(jpg|jpeg|png|tif)$/i);
+
+        if (images.length > 0) {
+            var photoFile = images[0];
+            var studentName = currentFolder.name; // Берем имя из названия папки
+            processStudent(doc, photoFile, studentName, outputFolder);
+        }
+    }
+
+    alert("Готово! Все файлы сохранены в папку Output_Ready");
+}
+
+function processStudent(doc, photoFile, studentName, savePath) {
+    var baseLayer;
+    try {
+        baseLayer = doc.layers.getByName("Основа_1");
+    } catch (e) {
+        alert("Критическая ошибка: Слой 'Основа_1' не найден!");
+        return;
+    }
+
+    // 1. Помещаем фото как Smart Object (лучшее качество при масштабе)
+    var photoDoc = open(photoFile);
+    photoDoc.selection.selectAll();
+    photoDoc.selection.copy();
+    photoDoc.close(SaveOptions.DONOTSAVECHANGES);
+
+    doc.activeLayer = baseLayer;
+    var placedLayer = doc.paste();
+    placedLayer.name = studentName;
+
+    // 2. Создаем Clipping Mask (привязываем фото к квадрату)
+    try {
+        createClippingMask();
+    } catch(e) {
+        // Если через экшен не вышло, пробуем через встроенную команду
+    }
+
+    // 3. Автомасштабирование под размер Основы_1
+    fitLayerToTarget(placedLayer, baseLayer);
+
+    // 4. Сохранение JPG
+    var jpgFile = new File(savePath + "/" + studentName + ".jpg");
+    var jpgOptions = new JPEGSaveOptions();
+    jpgOptions.quality = 12;
+    doc.saveAs(jpgFile, jpgOptions, true);
+
+    // 5. Сохранение PSD
+    var psdFile = new File(savePath + "/" + studentName + ".psd");
+    var psdOptions = new PhotoshopSaveOptions();
+    doc.saveAs(psdFile, psdOptions, true);
+
+    // Удаляем вставленный слой перед следующим кругом
+    placedLayer.remove();
+}
+
+function createClippingMask() {
+    var idGrpL = charIDToTypeID("GrpL");
+    executeAction(idGrpL, undefined, DialogModes.NO);
+}
+
+function fitLayerToTarget(layer, target) {
+    var targetBounds = target.bounds; // [left, top, right, bottom]
+    var layerBounds = layer.bounds;
+
+    var targetWidth = targetBounds[2] - targetBounds[0];
+    var targetHeight = targetBounds[3] - targetBounds[1];
+    
+    var layerWidth = layerBounds[2] - layerBounds[0];
+    var layerHeight = layerBounds[3] - layerBounds[1];
+
+    // Вычисляем коэффициент масштабирования (по принципу Cover)
+    var widthRatio = (targetWidth / layerWidth) * 100;
+    var heightRatio = (targetHeight / layerHeight) * 100;
+    
+    // Используем большее значение, чтобы не было пустых углов у квадрата
+    var finalRatio = Math.max(widthRatio, heightRatio);
+
+    layer.resize(finalRatio, finalRatio, AnchorPosition.MIDDLECENTER);
+    
+    // Центрируем слой относительно основы
+    var moveX = ((targetBounds[0] + targetBounds[2]) / 2) - ((layer.bounds[0] + layer.bounds[2]) / 2);
+    var moveY = ((targetBounds[1] + targetBounds[3]) / 2) - ((layer.bounds[1] + layer.bounds[3]) / 2);
+    
+    layer.translate(moveX, moveY);
+}
+
+main();
