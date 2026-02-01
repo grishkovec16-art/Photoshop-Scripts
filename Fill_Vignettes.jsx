@@ -22,18 +22,18 @@ function main() {
         if (imgFiles.length === 0) continue;
         var photoFile = imgFiles[0];
 
-        var baseID;    // Имя слоя для фото
-        var textID;    // Имя слоя для текста
+        var baseID;    // Имя слоя-подложки
+        var textID;    // Имя текстового слоя
         var labelText;
 
-        // ЛОГИКА ДЛЯ УЧИТЕЛЯ И УЧЕНИКОВ
+        // ПРОВЕРКА НА УЧИТЕЛЯ (по метке УЧ_)
         if (folderName.indexOf("УЧ_") === 0) {
             baseID = "Учитель_1"; 
-            textID = "Учитель_Имя_1"; 
+            textID = "Учитель_Имя_1"; // Ваше новое имя слоя
             labelText = folderName.replace("УЧ_", ""); 
         } else {
             baseID = "Фото_" + studentIndex;
-            textID = "Имя_" + studentIndex;
+            textID = "Имя_" + studentIndex; // Ваше новое имя слоя
             labelText = folderName;
             studentIndex++;
         }
@@ -41,45 +41,46 @@ function main() {
         processVignette(doc, photoFile, labelText, baseID, textID);
     }
 
-    alert("Готово! Все фото прикреплены к слоям Фото_N, имена заполнены в Имя_N.");
+    alert("Готово! Все фото привязаны к слоям масками.");
 }
 
 function processVignette(doc, file, nameText, baseLayerName, textLayerName) {
     try {
-        // 1. ЗАПОЛНЕНИЕ ТЕКСТА (в слой Имя_N)
+        // 1. ЗАПОЛНЕНИЕ ТЕКСТА (Имя_N или Учитель_Имя_1)
         var txtLayer = findLayer(doc, textLayerName);
         if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
         }
 
-        // 2. ВСТАВКА ФОТО (в слой Фото_N)
+        // 2. ВСТАВКА ФОТО (Фото_N или Учитель_1)
         var placeholder = findLayer(doc, baseLayerName);
         if (placeholder) {
             doc.activeLayer = placeholder;
 
-            // Вставляем файл
+            // Вставляем фото как Smart Object
             placeSmartObject(file);
 
             var photoLayer = doc.activeLayer;
             photoLayer.name = "IMG_" + nameText;
             
-            // Перемещаем строго НАД подложкой Фото_N
+            // Перемещаем слой строго НАД подложкой перед созданием маски
             photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
             
-            // Масштабируем
+            // Масштабируем по размеру подложки
             fitToTarget(photoLayer, placeholder);
 
-            // --- ПРИВЯЗКА К СЛОЮ (ОБТРАВОЧНАЯ МАСКА) ---
+            // --- ПРИВЯЗКА К СЛОЮ (CLIPPING MASK) ---
             makeClippingMask();
         }
     } catch (err) {
-        $.writeln("Ошибка в " + nameText + ": " + err);
+        $.writeln("Ошибка: " + nameText + " - " + err);
     }
 }
 
 function makeClippingMask() {
     try {
-        var idGrpP = charIDToTypeID("GrpP");
+        // Системный вызов команды "Create Clipping Mask" (Ctrl+Alt+G)
+        var idGrpP = charIDToTypeID("GrpP"); 
         var desc = new ActionDescriptor();
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
@@ -114,6 +115,8 @@ function fitToTarget(layer, target) {
     var lb = layer.bounds;
     var lw = lb[2].as("px") - lb[0].as("px");
     var lh = lb[3].as("px") - lb[1].as("px");
+
+    if (lw == 0 || lh == 0) return;
 
     var scale = Math.max(tw / lw, th / lh) * 100;
     layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
