@@ -1,115 +1,102 @@
 #target photoshop
 
 function main() {
-    if (app.documents.length === 0) {
-        alert("Сначала откройте PSD шаблон!");
+    if (app.documents.length === 0) { 
+        alert("Ошибка: Откройте PSD шаблон с виньетками!"); 
+        return; 
+    }
+    
+    var doc = app.activeDocument;
+    
+    // 1. Выбор корневой папки проекта
+    var rootFolder = Folder.selectDialog("Выберите папку проекта (где лежат папки УЧ_ и ФОТО)");
+    if (!rootFolder) return;
+
+    var photosFolder = new Folder(rootFolder + "/ФОТО");
+    if (!photosFolder.exists) { 
+        alert("Папка ФОТО не найдена по пути: " + photosFolder.fsName); 
+        return; 
+    }
+
+    // Получаем список файлов
+    var photos = photosFolder.getFiles(/\.(jpg|jpeg|png|tif)$/i);
+    photos.sort();
+
+    if (photos.length === 0) {
+        alert("В папке ФОТО нет подходящих изображений!");
         return;
     }
 
-    var doc = app.activeDocument;
-    var rootFolder = Folder.selectDialog("Выберите папку с материалами (папки УЧ_ и ФОТО)");
-    if (!rootFolder) return;
-
-    var folders = rootFolder.getFiles(function(f) { return f instanceof Folder; });
-    folders.sort(); 
-
-    var studentIndex = 1;
-
-    for (var i = 0; i < folders.length; i++) {
-        var folderName = decodeURI(folders[i].name);
+    // 2. Цикл по фотографиям и слоям "Фото_N"
+    for (var i = 0; i < photos.length; i++) {
+        var layerIndex = i + 1;
+        var targetLayerName = "Фото_" + layerIndex;
         
-        var imgFiles = folders[i].getFiles(/\.(jpg|jpeg|png|tif)$/i);
-        if (imgFiles.length === 0) continue;
-        var photoFile = imgFiles[0];
+        try {
+            // Ищем слой-основу
+            var baseLayer = doc.layers.getByName(targetLayerName);
+            doc.activeLayer = baseLayer;
 
-        var targetID;
-        var labelText;
+            // Вставляем фотографию как Smart Object (Place Embedded)
+            placeImage(photos[i]);
 
-        // ЛОГИКА ОПРЕДЕЛЕНИЯ УЧИТЕЛЯ ИЛИ УЧЕНИКА
-        if (folderName.indexOf("УЧ_") === 0) {
-            targetID = "Учитель_1"; 
-            labelText = folderName.replace("УЧ_", ""); 
-        } else {
-            targetID = "Фото_" + studentIndex;
-            labelText = folderName;
-            studentIndex++;
+            var photoLayer = doc.activeLayer;
+            photoLayer.name = "Photo_" + photos[i].name;
+
+            // --- СОЗДАНИЕ ОБТРАВОЧНОЙ МАСКИ (Clipping Mask) ---
+            // Команда аналогична Ctrl+Alt+G
+            makeClippingMask();
+
+            // Масштабируем и центрируем фото внутри маски
+            fitToTarget(photoLayer, baseLayer);
+
+        } catch (e) {
+            // Если слой "Фото_N" не найден, скрипт просто идет к следующему фото
+            continue;
         }
-
-        processPersonAsSmartObject(doc, photoFile, labelText, targetID);
     }
-
-    alert("Готово! Все фото добавлены.");
+    
+    alert("Готово! Все фото вставлены и прикреплены к слоям.");
 }
 
-function processPersonAsSmartObject(doc, file, nameText, layerName) {
-    try {
-        // 1. Обновляем текстовый слой
-        var txtLayer = findSpecificLayer(doc, layerName, true);
-        if (txtLayer) {
-            txtLayer.textItem.contents = nameText;
-        }
-
-        // 2. Ищем слой-заполнитель
-        var placeholder = findSpecificLayer(doc, layerName, false);
-        if (placeholder) {
-            doc.activeLayer = placeholder;
-            placeSmartObject(file);
-
-            var newLayer = doc.activeLayer;
-            newLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
-            
-            fitLayerSafely(newLayer, placeholder);
-
-            try { newLayer.group(); } catch(e) {} // Создание обтравочной маски
-            newLayer.name = "IMG_" + nameText;
-        }
-    } catch (err) {
-        $.writeln("Ошибка на имени: " + nameText + " - " + err);
-    }
-}
-
-function placeSmartObject(file) {
+function placeImage(filePath) {
     var desc = new ActionDescriptor();
-    desc.putPath(charIDToTypeID("null"), new File(file));
-    desc.putEnumerated(charIDToTypeID("FTcs"), charIDToTypeID("QCSt"), charIDToTypeID("Qcsa"));
+    desc.putPath(charIDToTypeID("null"), new File(filePath));
     executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
 }
 
-function findSpecificLayer(container, name, isText) {
-    for (var i = 0; i < container.layers.length; i++) {
-        var lyr = container.layers[i];
-        if (lyr.name === name) {
-            if (isText && lyr.kind === LayerKind.TEXT) return lyr;
-            if (!isText && lyr.kind !== LayerKind.TEXT) return lyr;
-        }
-        if (lyr.typename === "LayerSet") {
-            var res = findSpecificLayer(lyr, name, isText);
-            if (res) return res;
-        }
+function makeClippingMask() {
+    try {
+        var idGrpP = charIDToTypeID("GrpP"); // Group Previous (Clipping Mask)
+        var desc = new ActionDescriptor();
+        var ref = new ActionReference();
+        ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
+        desc.putReference(charIDToTypeID("null"), ref);
+        executeAction(idGrpP, desc, DialogModes.NO);
+    } catch (e) {
+        // Ошибка может возникнуть, если слой уже в маске
     }
-    return null;
 }
 
-function fitLayerSafely(layer, target) {
-    try {
-        var b = target.bounds;
-        var tw = b[2].as("px") - b[0].as("px");
-        var th = b[3].as("px") - b[1].as("px");
-        
-        var lb = layer.bounds;
-        var lw = lb[2].as("px") - lb[0].as("px");
-        var lh = lb[3].as("px") - lb[1].as("px");
-
-        if (lw == 0 || lh == 0) return;
-
-        var scale = Math.max(tw / lw, th / lh) * 100;
-        layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
-
-        var dx = (b[0].as("px") + tw/2) - (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px"))/2);
-        var dy = (b[1].as("px") + th/2) - (layer.bounds[1].as("px") + (layer.bounds[3].as("px") - layer.bounds[1].as("px"))/2);
-        layer.translate(dx, dy);
-    } catch(e) {}
+function fitToTarget(photo, base) {
+    var pB = photo.bounds; 
+    var bB = base.bounds;
+    
+    var pW = pB[2] - pB[0]; 
+    var pH = pB[3] - pB[1];
+    var bW = bB[2] - bB[0]; 
+    var bH = bB[3] - bB[1];
+    
+    // Расчет коэффициента для заполнения (Fill)
+    var ratio = Math.max(bW / pW, bH / pH) * 100;
+    photo.resize(ratio, ratio, AnchorPosition.MIDDLECENTER);
+    
+    // Центрирование
+    var pNewB = photo.bounds;
+    var pCenter = [pNewB[0] + (pNewB[2]-pNewB[0])/2, pNewB[1] + (pNewB[3]-pNewB[1])/2];
+    var bCenter = [bB[0] + bW/2, bB[1] + bH/2];
+    
+    photo.translate(bCenter[0] - pCenter[0], bCenter[1] - pCenter[1]);
 }
 
 main();
-
