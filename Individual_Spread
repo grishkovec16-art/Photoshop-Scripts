@@ -1,0 +1,75 @@
+#target photoshop
+
+function main() {
+    var doc = app.activeDocument;
+    var inputFolder = Folder.selectDialog("Выберите папку с именами учеников (внутри по 2 фото)");
+    if (!inputFolder) return;
+
+    var outputFolder = new Folder(inputFolder.parent + "/Output_Individual_Spreads");
+    if (!outputFolder.exists) outputFolder.create();
+
+    var folders = inputFolder.getFiles(function(f) { return f instanceof Folder; });
+
+    for (var i = 0; i < folders.length; i++) {
+        var studentFolder = folders[i];
+        var photos = studentFolder.getFiles(/\.(jpg|jpeg|png|tif)$/i);
+        
+        if (photos.length < 2) continue; // Пропускаем, если фото меньше двух
+
+        // Работаем с Основой 1
+        placePhotoIntoBase(doc, "Основа_1", photos[0]);
+        // Работаем с Основой 2
+        placePhotoIntoBase(doc, "Основа_2", photos[1]);
+
+        // Сохранение
+        var studentName = studentFolder.name;
+        saveFile(doc, outputFolder, studentName);
+    }
+    alert("Готово! Все индивидуальные страницы сохранены.");
+}
+
+function placePhotoIntoBase(doc, baseName, photoFile) {
+    try {
+        var baseLayer = doc.layers.getByName(baseName);
+        doc.activeLayer = baseLayer;
+
+        var desc = new ActionDescriptor();
+        desc.putPath(charIDToTypeID("null"), new File(photoFile));
+        executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
+
+        var photoLayer = doc.activeLayer;
+        photoLayer.link(baseLayer); // Привязка для контроля
+        
+        // Создание обтравочной маски
+        executeAction(stringIDToTypeID("groupEvent"), undefined, DialogModes.NO);
+        
+        // Авто-масштабирование (Fit)
+        fitLayerToBase(photoLayer, baseLayer);
+    } catch (e) {
+        alert("Ошибка: Слой " + baseName + " не найден!");
+    }
+}
+
+function fitLayerToBase(layer, base) {
+    var l = layer.bounds;
+    var b = base.bounds;
+    var lW = l[2] - l[0];
+    var lH = l[3] - l[1];
+    var bW = b[2] - b[0];
+    var bH = b[3] - b[1];
+    var ratio = Math.max(bW / lW, bH / lH) * 100;
+    layer.resize(ratio, ratio, AnchorPosition.MIDDLECENTER);
+}
+
+function saveFile(doc, folder, name) {
+    var psdFile = new File(folder + "/" + name + ".psd");
+    var jpgFile = new File(folder + "/" + name + ".jpg");
+    
+    doc.saveAs(psdFile, new PhotoshopSaveOptions(), true);
+    
+    var jpgOpt = new JPEGSaveOptions();
+    jpgOpt.quality = 12;
+    doc.saveAs(jpgFile, jpgOpt, true);
+}
+
+main();
