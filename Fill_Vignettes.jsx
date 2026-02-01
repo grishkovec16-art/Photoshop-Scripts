@@ -7,7 +7,7 @@ function main() {
     }
 
     var doc = app.activeDocument;
-    var rootFolder = Folder.selectDialog("Выберите папку с материалами (папки учеников)");
+    var rootFolder = Folder.selectDialog("Выберите папку с материалами");
     if (!rootFolder) return;
 
     var folders = rootFolder.getFiles(function(f) { return f instanceof Folder; });
@@ -22,18 +22,18 @@ function main() {
         if (imgFiles.length === 0) continue;
         var photoFile = imgFiles[0];
 
-        var baseID;    // Имя слоя-подложки
-        var textID;    // Имя текстового слоя
+        var baseID;    // Имя слоя-подложки (Фото_N)
+        var textID;    // Имя текстового слоя (Имя_N)
         var labelText;
 
-        // ПРОВЕРКА НА УЧИТЕЛЯ (по метке УЧ_)
+        // ПРОВЕРКА НА УЧИТЕЛЯ (Папка начинается с УЧ_)
         if (folderName.indexOf("УЧ_") === 0) {
             baseID = "Учитель_1"; 
-            textID = "Учитель_Имя_1"; // Ваше новое имя слоя
+            textID = "Учитель_Имя_1"; // Ваше новое название
             labelText = folderName.replace("УЧ_", ""); 
         } else {
             baseID = "Фото_" + studentIndex;
-            textID = "Имя_" + studentIndex; // Ваше новое имя слоя
+            textID = "Имя_" + studentIndex; // Ваше новое название
             labelText = folderName;
             studentIndex++;
         }
@@ -41,35 +41,35 @@ function main() {
         processVignette(doc, photoFile, labelText, baseID, textID);
     }
 
-    alert("Готово! Все фото привязаны к слоям масками.");
+    alert("Готово! Фото привязаны к слоям, имена заполнены.");
 }
 
 function processVignette(doc, file, nameText, baseLayerName, textLayerName) {
     try {
-        // 1. ЗАПОЛНЕНИЕ ТЕКСТА (Имя_N или Учитель_Имя_1)
+        // 1. ЗАПОЛНЕНИЕ ТЕКСТА
         var txtLayer = findLayer(doc, textLayerName);
         if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
         }
 
-        // 2. ВСТАВКА ФОТО (Фото_N или Учитель_1)
+        // 2. ВСТАВКА ФОТО И ПРИВЯЗКА
         var placeholder = findLayer(doc, baseLayerName);
         if (placeholder) {
             doc.activeLayer = placeholder;
 
-            // Вставляем фото как Smart Object
+            // Вставляем как Smart Object
             placeSmartObject(file);
 
             var photoLayer = doc.activeLayer;
             photoLayer.name = "IMG_" + nameText;
             
-            // Перемещаем слой строго НАД подложкой перед созданием маски
+            // Перемещаем строго НАД подложкой
             photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
             
-            // Масштабируем по размеру подложки
-            fitToTarget(photoLayer, placeholder);
+            // Масштабируем
+            fitLayerToTarget(photoLayer, placeholder);
 
-            // --- ПРИВЯЗКА К СЛОЮ (CLIPPING MASK) ---
+            // СОЗДАНИЕ ОБТРАВОЧНОЙ МАСКИ (Стрелочка)
             makeClippingMask();
         }
     } catch (err) {
@@ -79,8 +79,7 @@ function processVignette(doc, file, nameText, baseLayerName, textLayerName) {
 
 function makeClippingMask() {
     try {
-        // Системный вызов команды "Create Clipping Mask" (Ctrl+Alt+G)
-        var idGrpP = charIDToTypeID("GrpP"); 
+        var idGrpP = charIDToTypeID("GrpP"); // Команда Create Clipping Mask
         var desc = new ActionDescriptor();
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
@@ -107,7 +106,7 @@ function findLayer(container, name) {
     return null;
 }
 
-function fitToTarget(layer, target) {
+function fitLayerToTarget(layer, target) {
     var b = target.bounds;
     var tw = b[2].as("px") - b[0].as("px");
     var th = b[3].as("px") - b[1].as("px");
@@ -115,8 +114,6 @@ function fitToTarget(layer, target) {
     var lb = layer.bounds;
     var lw = lb[2].as("px") - lb[0].as("px");
     var lh = lb[3].as("px") - lb[1].as("px");
-
-    if (lw == 0 || lh == 0) return;
 
     var scale = Math.max(tw / lw, th / lh) * 100;
     layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
