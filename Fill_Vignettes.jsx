@@ -10,7 +10,6 @@ function main() {
     var rootFolder = Folder.selectDialog("Выберите папку с материалами (папки учеников)");
     if (!rootFolder) return;
 
-    // Получаем список папок (УЧ_ и обычные)
     var folders = rootFolder.getFiles(function(f) { return f instanceof Folder; });
     folders.sort(); 
 
@@ -19,13 +18,12 @@ function main() {
     for (var i = 0; i < folders.length; i++) {
         var folderName = decodeURI(folders[i].name);
         
-        // Поиск первого изображения в папке
         var imgFiles = folders[i].getFiles(/\.(jpg|jpeg|png|tif)$/i);
         if (imgFiles.length === 0) continue;
         var photoFile = imgFiles[0];
 
-        var baseID;
-        var textID;
+        var baseID;    // Имя слоя для фото
+        var textID;    // Имя слоя для текста
         var labelText;
 
         // ЛОГИКА ДЛЯ УЧИТЕЛЯ И УЧЕНИКОВ
@@ -43,53 +41,57 @@ function main() {
         processVignette(doc, photoFile, labelText, baseID, textID);
     }
 
-    alert("Готово! Все слои заполнены и привязаны масками.");
+    alert("Готово! Все фото прикреплены к слоям Фото_N, имена заполнены в Имя_N.");
 }
 
 function processVignette(doc, file, nameText, baseLayerName, textLayerName) {
     try {
-        // 1. ЗАПОЛНЕНИЕ ТЕКСТА (Имя_N)
+        // 1. ЗАПОЛНЕНИЕ ТЕКСТА (в слой Имя_N)
         var txtLayer = findLayer(doc, textLayerName);
         if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
         }
 
-        // 2. ВСТАВКА ФОТО (Фото_N)
+        // 2. ВСТАВКА ФОТО (в слой Фото_N)
         var placeholder = findLayer(doc, baseLayerName);
         if (placeholder) {
             doc.activeLayer = placeholder;
 
-            // Вставляем как Smart Object
-            var desc = new ActionDescriptor();
-            desc.putPath(charIDToTypeID("null"), new File(file));
-            executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
+            // Вставляем файл
+            placeSmartObject(file);
 
             var photoLayer = doc.activeLayer;
             photoLayer.name = "IMG_" + nameText;
             
-            // Перемещаем строго над плейсхолдером
+            // Перемещаем строго НАД подложкой Фото_N
             photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
             
-            // Подгоняем размер
-            fitToPlaceholder(photoLayer, placeholder);
+            // Масштабируем
+            fitToTarget(photoLayer, placeholder);
 
-            // --- АВТОМАТИЗАЦИЯ ПРИВЯЗКИ (ОБТРАВОЧНАЯ МАСКА) ---
+            // --- ПРИВЯЗКА К СЛОЮ (ОБТРАВОЧНАЯ МАСКА) ---
             makeClippingMask();
         }
     } catch (err) {
-        $.writeln("Ошибка: " + nameText + " - " + err);
+        $.writeln("Ошибка в " + nameText + ": " + err);
     }
 }
 
 function makeClippingMask() {
     try {
-        var idGrpP = charIDToTypeID("GrpP"); // Action для Clipping Mask
+        var idGrpP = charIDToTypeID("GrpP");
         var desc = new ActionDescriptor();
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
         desc.putReference(charIDToTypeID("null"), ref);
         executeAction(idGrpP, desc, DialogModes.NO);
     } catch (e) {}
+}
+
+function placeSmartObject(file) {
+    var desc = new ActionDescriptor();
+    desc.putPath(charIDToTypeID("null"), new File(file));
+    executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
 }
 
 function findLayer(container, name) {
@@ -104,7 +106,7 @@ function findLayer(container, name) {
     return null;
 }
 
-function fitToPlaceholder(layer, target) {
+function fitToTarget(layer, target) {
     var b = target.bounds;
     var tw = b[2].as("px") - b[0].as("px");
     var th = b[3].as("px") - b[1].as("px");
