@@ -10,6 +10,7 @@ function main() {
     var rootFolder = Folder.selectDialog("Выберите папку с материалами (папки учеников)");
     if (!rootFolder) return;
 
+    // Получаем список папок (УЧ_ и обычные)
     var folders = rootFolder.getFiles(function(f) { return f instanceof Folder; });
     folders.sort(); 
 
@@ -18,50 +19,61 @@ function main() {
     for (var i = 0; i < folders.length; i++) {
         var folderName = decodeURI(folders[i].name);
         
+        // Поиск первого изображения в папке
         var imgFiles = folders[i].getFiles(/\.(jpg|jpeg|png|tif)$/i);
         if (imgFiles.length === 0) continue;
         var photoFile = imgFiles[0];
 
-        var targetID;
+        var baseID;
+        var textID;
         var labelText;
 
+        // ЛОГИКА ДЛЯ УЧИТЕЛЯ И УЧЕНИКОВ
         if (folderName.indexOf("УЧ_") === 0) {
-            targetID = "Учитель_1"; 
+            baseID = "Учитель_1"; 
+            textID = "Учитель_Имя_1"; 
             labelText = folderName.replace("УЧ_", ""); 
         } else {
-            targetID = "Фото_" + studentIndex;
+            baseID = "Фото_" + studentIndex;
+            textID = "Имя_" + studentIndex;
             labelText = folderName;
             studentIndex++;
         }
 
-        processPersonAsSmartObject(doc, photoFile, labelText, targetID);
+        processVignette(doc, photoFile, labelText, baseID, textID);
     }
 
-    alert("Готово! Фотографии привязаны к слоям масками.");
+    alert("Готово! Все слои заполнены и привязаны масками.");
 }
 
-function processPersonAsSmartObject(doc, file, nameText, layerName) {
+function processVignette(doc, file, nameText, baseLayerName, textLayerName) {
     try {
-        var txtLayer = findSpecificLayer(doc, layerName, true);
-        if (txtLayer) {
+        // 1. ЗАПОЛНЕНИЕ ТЕКСТА (Имя_N)
+        var txtLayer = findLayer(doc, textLayerName);
+        if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
         }
 
-        var placeholder = findSpecificLayer(doc, layerName, false);
+        // 2. ВСТАВКА ФОТО (Фото_N)
+        var placeholder = findLayer(doc, baseLayerName);
         if (placeholder) {
             doc.activeLayer = placeholder;
 
-            placeSmartObject(file);
+            // Вставляем как Smart Object
+            var desc = new ActionDescriptor();
+            desc.putPath(charIDToTypeID("null"), new File(file));
+            executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
 
-            var newLayer = doc.activeLayer;
-            newLayer.name = "IMG_" + nameText;
+            var photoLayer = doc.activeLayer;
+            photoLayer.name = "IMG_" + nameText;
             
-            // Перемещаем слой строго НАД плейсхолдером перед созданием маски
-            newLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
+            // Перемещаем строго над плейсхолдером
+            photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
             
-            fitLayerSafely(newLayer, placeholder);
+            // Подгоняем размер
+            fitToPlaceholder(photoLayer, placeholder);
 
-            // --- ФИКС: ПРИВЯЗКА К СЛОЮ (ОБТРАВОЧНАЯ МАСКА) ---
+            // --- АВТОМАТИЗАЦИЯ ПРИВЯЗКИ (ОБТРАВОЧНАЯ МАСКА) ---
             makeClippingMask();
         }
     } catch (err) {
@@ -71,7 +83,7 @@ function processPersonAsSmartObject(doc, file, nameText, layerName) {
 
 function makeClippingMask() {
     try {
-        var idGrpP = charIDToTypeID("GrpP"); // Команда Create Clipping Mask
+        var idGrpP = charIDToTypeID("GrpP"); // Action для Clipping Mask
         var desc = new ActionDescriptor();
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
@@ -80,46 +92,33 @@ function makeClippingMask() {
     } catch (e) {}
 }
 
-function placeSmartObject(file) {
-    var desc = new ActionDescriptor();
-    desc.putPath(charIDToTypeID("null"), new File(file));
-    executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
-}
-
-function findSpecificLayer(container, name, isText) {
+function findLayer(container, name) {
     for (var i = 0; i < container.layers.length; i++) {
         var lyr = container.layers[i];
-        if (lyr.name === name) {
-            if (isText && lyr.kind === LayerKind.TEXT) return lyr;
-            if (!isText && lyr.kind !== LayerKind.TEXT) return lyr;
-        }
+        if (lyr.name === name) return lyr;
         if (lyr.typename === "LayerSet") {
-            var res = findSpecificLayer(lyr, name, isText);
+            var res = findLayer(lyr, name);
             if (res) return res;
         }
     }
     return null;
 }
 
-function fitLayerSafely(layer, target) {
-    try {
-        var b = target.bounds;
-        var tw = b[2].as("px") - b[0].as("px");
-        var th = b[3].as("px") - b[1].as("px");
-        
-        var lb = layer.bounds;
-        var lw = lb[2].as("px") - lb[0].as("px");
-        var lh = lb[3].as("px") - lb[1].as("px");
+function fitToPlaceholder(layer, target) {
+    var b = target.bounds;
+    var tw = b[2].as("px") - b[0].as("px");
+    var th = b[3].as("px") - b[1].as("px");
+    
+    var lb = layer.bounds;
+    var lw = lb[2].as("px") - lb[0].as("px");
+    var lh = lb[3].as("px") - lb[1].as("px");
 
-        if (lw == 0 || lh == 0) return;
+    var scale = Math.max(tw / lw, th / lh) * 100;
+    layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
 
-        var scale = Math.max(tw / lw, th / lh) * 100;
-        layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
-
-        var dx = (b[0].as("px") + tw/2) - (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px"))/2);
-        var dy = (b[1].as("px") + th/2) - (layer.bounds[1].as("px") + (layer.bounds[3].as("px") - layer.bounds[1].as("px"))/2);
-        layer.translate(dx, dy);
-    } catch(e) {}
+    var dx = (b[0].as("px") + tw/2) - (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px"))/2);
+    var dy = (b[1].as("px") + th/2) - (layer.bounds[1].as("px") + (layer.bounds[3].as("px") - layer.bounds[1].as("px"))/2);
+    layer.translate(dx, dy);
 }
 
 main();
