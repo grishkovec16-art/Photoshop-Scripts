@@ -25,7 +25,6 @@ function main() {
         var targetID;
         var labelText;
 
-        // ПРОВЕРКА НА УЧИТЕЛЯ
         if (folderName.indexOf("УЧ_") === 0) {
             targetID = "Учитель_1"; 
             labelText = folderName.replace("УЧ_", ""); 
@@ -43,31 +42,26 @@ function main() {
 
 function processPersonAsSmartObject(doc, file, nameText, layerName) {
     try {
-        // 1. Обновляем текст (имя ученика)
         var txtLayer = findSpecificLayer(doc, layerName, true);
         if (txtLayer) {
             txtLayer.textItem.contents = nameText;
         }
 
-        // 2. Находим слой-подложку (черный прямоугольник)
         var placeholder = findSpecificLayer(doc, layerName, false);
         if (placeholder) {
             doc.activeLayer = placeholder;
 
-            // Вставляем фото как Smart-объект
             placeSmartObject(file);
 
             var newLayer = doc.activeLayer;
             newLayer.name = "IMG_" + nameText;
             
-            // Перемещаем слой строго НАД плейсхолдером
+            // Перемещаем слой строго НАД плейсхолдером перед созданием маски
             newLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
             
-            // Масштабируем по размеру плейсхолдера
             fitLayerSafely(newLayer, placeholder);
 
-            // --- ПРИВЯЗКА К СЛОЮ (ОБТРАВОЧНАЯ МАСКА) ---
-            // Теперь создается та самая стрелочка вниз
+            // --- ФИКС: ПРИВЯЗКА К СЛОЮ (ОБТРАВОЧНАЯ МАСКА) ---
             makeClippingMask();
         }
     } catch (err) {
@@ -77,16 +71,13 @@ function processPersonAsSmartObject(doc, file, nameText, layerName) {
 
 function makeClippingMask() {
     try {
-        // Системный идентификатор команды "Create Clipping Mask"
-        var idGrpP = charIDToTypeID("GrpP"); 
+        var idGrpP = charIDToTypeID("GrpP"); // Команда Create Clipping Mask
         var desc = new ActionDescriptor();
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
         desc.putReference(charIDToTypeID("null"), ref);
         executeAction(idGrpP, desc, DialogModes.NO);
-    } catch (e) {
-        // Ошибка может возникнуть, если слой уже является маской
-    }
+    } catch (e) {}
 }
 
 function placeSmartObject(file) {
