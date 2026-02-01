@@ -10,7 +10,6 @@ function main() {
     var rootFolder = Folder.selectDialog("Выберите папку с материалами (папки учеников)");
     if (!rootFolder) return;
 
-    // Получаем список папок
     var folders = rootFolder.getFiles(function(f) { return f instanceof Folder; });
     folders.sort(); 
 
@@ -19,7 +18,6 @@ function main() {
     for (var i = 0; i < folders.length; i++) {
         var folderName = decodeURI(folders[i].name);
         
-        // Ищем первое фото в папке ученика
         var imgFiles = folders[i].getFiles(/\.(jpg|jpeg|png|tif)$/i);
         if (imgFiles.length === 0) continue;
         var photoFile = imgFiles[0];
@@ -40,7 +38,7 @@ function main() {
         processPersonAsSmartObject(doc, photoFile, labelText, targetID);
     }
 
-    alert("Готово! Фотографии вставлены и привязаны к слоям.");
+    alert("Готово! Фотографии привязаны к слоям масками.");
 }
 
 function processPersonAsSmartObject(doc, file, nameText, layerName) {
@@ -51,7 +49,7 @@ function processPersonAsSmartObject(doc, file, nameText, layerName) {
             txtLayer.textItem.contents = nameText;
         }
 
-        // 2. Находим слой-плейсхолдер (черный прямоугольник)
+        // 2. Находим слой-подложку (черный прямоугольник)
         var placeholder = findSpecificLayer(doc, layerName, false);
         if (placeholder) {
             doc.activeLayer = placeholder;
@@ -68,8 +66,8 @@ function processPersonAsSmartObject(doc, file, nameText, layerName) {
             // Масштабируем по размеру плейсхолдера
             fitLayerSafely(newLayer, placeholder);
 
-            // --- ПРИВЯЗКА К СЛОЮ (CLIPPING MASK) ---
-            // Теперь фото будет обрезаться по форме плейсхолдера
+            // --- ПРИВЯЗКА К СЛОЮ (ОБТРАВОЧНАЯ МАСКА) ---
+            // Теперь создается та самая стрелочка вниз
             makeClippingMask();
         }
     } catch (err) {
@@ -79,14 +77,15 @@ function processPersonAsSmartObject(doc, file, nameText, layerName) {
 
 function makeClippingMask() {
     try {
-        var idGrpP = charIDToTypeID("GrpP"); // Команда создания обтравочной маски
+        // Системный идентификатор команды "Create Clipping Mask"
+        var idGrpP = charIDToTypeID("GrpP"); 
         var desc = new ActionDescriptor();
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
         desc.putReference(charIDToTypeID("null"), ref);
         executeAction(idGrpP, desc, DialogModes.NO);
     } catch (e) {
-        // Ошибка, если маска не может быть создана
+        // Ошибка может возникнуть, если слой уже является маской
     }
 }
 
