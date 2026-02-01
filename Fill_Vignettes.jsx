@@ -7,7 +7,7 @@ function main() {
     }
 
     var doc = app.activeDocument;
-    var rootFolder = Folder.selectDialog("Выберите папку с материалами");
+    var rootFolder = Folder.selectDialog("Выберите папку с материалами (папки учеников)");
     if (!rootFolder) return;
 
     var folders = rootFolder.getFiles(function(f) { return f instanceof Folder; });
@@ -22,18 +22,18 @@ function main() {
         if (imgFiles.length === 0) continue;
         var photoFile = imgFiles[0];
 
-        var baseID;    // Имя слоя-подложки (Фото_N)
-        var textID;    // Имя текстового слоя (Имя_N)
+        var baseID;    // Слой-рамка (Фото_N)
+        var textID;    // Текстовый слой (Имя_N)
         var labelText;
 
-        // ПРОВЕРКА НА УЧИТЕЛЯ (Папка начинается с УЧ_)
+        // ЛОГИКА ОПРЕДЕЛЕНИЯ РОЛИ (Учитель или Ученик)
         if (folderName.indexOf("УЧ_") === 0) {
             baseID = "Учитель_1"; 
-            textID = "Учитель_Имя_1"; // Ваше новое название
+            textID = "Учитель_Имя_1"; // Согласно вашей новой структуре
             labelText = folderName.replace("УЧ_", ""); 
         } else {
             baseID = "Фото_" + studentIndex;
-            textID = "Имя_" + studentIndex; // Ваше новое название
+            textID = "Имя_" + studentIndex; // Согласно вашей новой структуре
             labelText = folderName;
             studentIndex++;
         }
@@ -41,7 +41,7 @@ function main() {
         processVignette(doc, photoFile, labelText, baseID, textID);
     }
 
-    alert("Готово! Фото привязаны к слоям, имена заполнены.");
+    alert("Готово! Фотографии привязаны к слоям масками.");
 }
 
 function processVignette(doc, file, nameText, baseLayerName, textLayerName) {
@@ -52,40 +52,43 @@ function processVignette(doc, file, nameText, baseLayerName, textLayerName) {
             txtLayer.textItem.contents = nameText;
         }
 
-        // 2. ВСТАВКА ФОТО И ПРИВЯЗКА
+        // 2. ВСТАВКА ФОТО И ПРИВЯЗКА К СЛОЮ (CLIPPING MASK)
         var placeholder = findLayer(doc, baseLayerName);
         if (placeholder) {
             doc.activeLayer = placeholder;
 
-            // Вставляем как Smart Object
+            // Вставляем файл как Smart Object
             placeSmartObject(file);
 
             var photoLayer = doc.activeLayer;
             photoLayer.name = "IMG_" + nameText;
             
-            // Перемещаем строго НАД подложкой
+            // Перемещаем слой строго НАД подложкой перед созданием маски
             photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
             
-            // Масштабируем
-            fitLayerToTarget(photoLayer, placeholder);
+            // Масштабируем фото под размер ячейки
+            fitLayerSafely(photoLayer, placeholder);
 
-            // СОЗДАНИЕ ОБТРАВОЧНОЙ МАСКИ (Стрелочка)
+            // ТЕХНОЛОГИЯ ПРИВЯЗКИ (как в скрипте обложек)
             makeClippingMask();
         }
     } catch (err) {
-        $.writeln("Ошибка: " + nameText + " - " + err);
+        $.writeln("Ошибка при обработке " + nameText + ": " + err);
     }
 }
 
+// Надежный метод создания обтравочной маски через ActionDescriptor
 function makeClippingMask() {
     try {
-        var idGrpP = charIDToTypeID("GrpP"); // Команда Create Clipping Mask
+        var idGrpP = charIDToTypeID("GrpP"); // Команда "Create Clipping Mask"
         var desc = new ActionDescriptor();
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
         desc.putReference(charIDToTypeID("null"), ref);
         executeAction(idGrpP, desc, DialogModes.NO);
-    } catch (e) {}
+    } catch (e) {
+        $.writeln("Не удалось создать маску: " + e);
+    }
 }
 
 function placeSmartObject(file) {
@@ -106,7 +109,7 @@ function findLayer(container, name) {
     return null;
 }
 
-function fitLayerToTarget(layer, target) {
+function fitLayerSafely(layer, target) {
     var b = target.bounds;
     var tw = b[2].as("px") - b[0].as("px");
     var th = b[3].as("px") - b[1].as("px");
@@ -114,6 +117,8 @@ function fitLayerToTarget(layer, target) {
     var lb = layer.bounds;
     var lw = lb[2].as("px") - lb[0].as("px");
     var lh = lb[3].as("px") - lb[1].as("px");
+
+    if (lw == 0 || lh == 0) return;
 
     var scale = Math.max(tw / lw, th / lh) * 100;
     layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
