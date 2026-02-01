@@ -7,9 +7,10 @@ function main() {
     }
 
     var doc = app.activeDocument;
-    var rootFolder = Folder.selectDialog("Выберите папку с материалами");
+    var rootFolder = Folder.selectDialog("Выберите папку с материалами (папки учеников)");
     if (!rootFolder) return;
 
+    // Получаем список папок
     var folders = rootFolder.getFiles(function(f) { return f instanceof Folder; });
     folders.sort(); 
 
@@ -18,6 +19,7 @@ function main() {
     for (var i = 0; i < folders.length; i++) {
         var folderName = decodeURI(folders[i].name);
         
+        // Ищем первое фото в папке ученика
         var imgFiles = folders[i].getFiles(/\.(jpg|jpeg|png|tif)$/i);
         if (imgFiles.length === 0) continue;
         var photoFile = imgFiles[0];
@@ -25,6 +27,7 @@ function main() {
         var targetID;
         var labelText;
 
+        // ПРОВЕРКА НА УЧИТЕЛЯ
         if (folderName.indexOf("УЧ_") === 0) {
             targetID = "Учитель_1"; 
             labelText = folderName.replace("УЧ_", ""); 
@@ -37,32 +40,36 @@ function main() {
         processPersonAsSmartObject(doc, photoFile, labelText, targetID);
     }
 
-    alert("Готово! Фотографии привязаны к слоям масками.");
+    alert("Готово! Фотографии вставлены и привязаны к слоям.");
 }
 
 function processPersonAsSmartObject(doc, file, nameText, layerName) {
     try {
+        // 1. Обновляем текст (имя ученика)
         var txtLayer = findSpecificLayer(doc, layerName, true);
         if (txtLayer) {
             txtLayer.textItem.contents = nameText;
         }
 
+        // 2. Находим слой-плейсхолдер (черный прямоугольник)
         var placeholder = findSpecificLayer(doc, layerName, false);
         if (placeholder) {
             doc.activeLayer = placeholder;
 
+            // Вставляем фото как Smart-объект
             placeSmartObject(file);
 
             var newLayer = doc.activeLayer;
             newLayer.name = "IMG_" + nameText;
             
-            // Перемещаем слой строго над плейсхолдером
+            // Перемещаем слой строго НАД плейсхолдером
             newLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
             
+            // Масштабируем по размеру плейсхолдера
             fitLayerSafely(newLayer, placeholder);
 
-            // --- ПРИВЯЗКА К СЛОЮ (ОБТРАВОЧНАЯ МАСКА) ---
-            // Выполняем команду создания маски для текущего активного слоя
+            // --- ПРИВЯЗКА К СЛОЮ (CLIPPING MASK) ---
+            // Теперь фото будет обрезаться по форме плейсхолдера
             makeClippingMask();
         }
     } catch (err) {
@@ -72,14 +79,14 @@ function processPersonAsSmartObject(doc, file, nameText, layerName) {
 
 function makeClippingMask() {
     try {
-        var idGrpP = charIDToTypeID("GrpP");
+        var idGrpP = charIDToTypeID("GrpP"); // Команда создания обтравочной маски
         var desc = new ActionDescriptor();
         var ref = new ActionReference();
         ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
         desc.putReference(charIDToTypeID("null"), ref);
         executeAction(idGrpP, desc, DialogModes.NO);
     } catch (e) {
-        // Ошибка может возникнуть, если слой уже является маской
+        // Ошибка, если маска не может быть создана
     }
 }
 
