@@ -1,18 +1,17 @@
 /**
- * VIGNETTE FILLER PRO (Cloud & Legacy Compatible)
- * Исправленная версия для работы через UXP-плагин
+ * VIGNETTE FILLER PRO
+ * Совместим с UXP-планином и обычным запуском
  */
 
 (function() {
-    // 1. ИНИЦИАЛИЗАЦИЯ ПУТИ
-    // Если скрипт запущен через плагин, переменная folderPath уже будет существовать
+    // 1. ОПРЕДЕЛЕНИЕ ПУТИ
+    // Если переменная folderPath передана из плагина — используем её
     var selectedPath = (typeof folderPath !== 'undefined') ? folderPath : null;
     var rootFolder;
 
     if (selectedPath) {
         rootFolder = new Folder(selectedPath);
     } else {
-        // Если запущен вручную как .jsx
         rootFolder = Folder.selectDialog("Выберите папку с классами");
     }
 
@@ -20,38 +19,39 @@
 
     var doc = app.activeDocument;
     if (!doc) {
-        alert("Ошибка: Откройте PSD шаблон виньетки!");
+        alert("Ошибка: Откройте PSD шаблон!");
         return;
     }
 
-    // 2. ПОЛУЧЕНИЕ СПИСКА ПАПОК (Безопасный метод для UXP)
-    // В UXP мы имитируем работу через массив, переданный из плагина, если это возможно
+    // 2. ПОЛУЧЕНИЕ СПИСКА ПАПОК (Безопасный перебор)
+    var allEntries = rootFolder.getFiles();
     var folders = [];
-    var allFiles = rootFolder.getFiles();
-    
-    for (var i = 0; i < allFiles.length; i++) {
-        if (allFiles[i] instanceof Folder) {
-            folders.push(allFiles[i]);
+    for (var i = 0; i < allEntries.length; i++) {
+        if (allEntries[i] instanceof Folder) {
+            folders.push(allEntries[i]);
         }
     }
     
-    folders.sort(function(a, b) { return a.name.localeCompare(b.name); });
+    // Сортировка по имени
+    folders.sort(function(a, b) { 
+        return a.name.localeCompare(b.name); 
+    });
 
     var studentIndex = 1;
 
-    // 3. ОСНОВНОЙ ЦИКЛ ОБРАБОТКИ
+    // 3. ЦИКЛ ОБРАБОТКИ
     for (var i = 0; i < folders.length; i++) {
         var personFolder = folders[i];
         var folderName = decodeURI(personFolder.name);
 
-        // Пропускаем системные папки
-        if (folderName.match(/^(\.|__)/)) continue;
+        // Пропускаем скрытые папки
+        if (folderName.indexOf(".") === 0) continue;
 
-        // Поиск первого изображения в папке (jpg, png, tif)
+        // Поиск фото (jpg, png, tif, psd)
         var photoFile = null;
         var subFiles = personFolder.getFiles();
         for (var j = 0; j < subFiles.length; j++) {
-            if (subFiles[j].name.match(/\.(jpg|jpeg|png|tif|psd)$/i)) {
+            if (subFiles[j] instanceof File && subFiles[j].name.match(/\.(jpg|jpeg|png|tif|psd)$/i)) {
                 photoFile = subFiles[j];
                 break;
             }
@@ -59,7 +59,7 @@
 
         if (!photoFile) continue;
 
-        // Определение целевых слоев
+        // Определяем слои
         var baseID, textID, labelText;
         if (folderName.indexOf("УЧ_") === 0) {
             baseID = "Учитель_1";
@@ -72,37 +72,38 @@
             studentIndex++;
         }
 
-        // ВЫПОЛНЕНИЕ ДЕЙСТВИЙ В PHOTOSHOP
+        // ПРИМЕНЕНИЕ В PHOTOSHOP
         try {
-            // Обновляем текст
+            // Имя
             var txtLayer = findLayer(doc, textID);
             if (txtLayer && txtLayer.kind == LayerKind.TEXT) {
                 txtLayer.textItem.contents = labelText;
             }
 
-            // Вставляем фото
+            // Фото
             var placeholder = findLayer(doc, baseID);
             if (placeholder) {
                 doc.activeLayer = placeholder;
                 
-                // Вставка файла
-                placeFile(photoFile);
+                // Вставка фото
+                placeFileAsSmartObject(photoFile);
 
                 var photoLayer = doc.activeLayer;
                 photoLayer.name = "IMG_" + labelText;
                 
-                // Создаем обтравочную маску (Clipping Mask)
+                // Создание Clipping Mask
                 photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
                 photoLayer.grouped = true; 
             }
         } catch (e) {
-            $.writeln("Ошибка папки " + folderName + ": " + e);
+            // Ошибку пишем в консоль, чтобы не прерывать цикл
+            $.writeln("Ошибка в папке " + folderName + ": " + e);
         }
     }
 
-    alert("Завершено!\nОбработано папок: " + folders.length);
+    alert("Готово! Обработано человек: " + folders.length);
 
-    // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+    // --- ФУНКЦИИ-ПОМОЩНИКИ ---
 
     function findLayer(container, name) {
         for (var i = 0; i < container.layers.length; i++) {
@@ -116,11 +117,11 @@
         return null;
     }
 
-    function placeFile(file) {
+    function placeFileAsSmartObject(file) {
         var idPlc = charIDToTypeID("Plc ");
         var desc = new ActionDescriptor();
         desc.putPath(charIDToTypeID("null"), new File(file));
-        desc.putBoolean(charIDToTypeID("Lnkd"), true); // Вставить как связанный
+        desc.putBoolean(charIDToTypeID("Lnkd"), true); 
         executeAction(idPlc, desc, DialogModes.NO);
     }
 })();
