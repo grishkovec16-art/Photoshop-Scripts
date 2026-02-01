@@ -1,110 +1,104 @@
 #target photoshop
 
 function main() {
-    if (app.documents.length === 0) {
-        alert("Ошибка: Откройте PSD шаблон с названием слоя 'Основа_1'!");
-        return;
-    }
-
+    if (app.documents.length === 0) { alert("Ошибка: Откройте шаблон ОБЛОЖКИ!"); return; }
     var doc = app.activeDocument;
-    var rootFolder = Folder.selectDialog("Выберите корневую папку с учениками");
+    var rootFolder = Folder.selectDialog("Выберите папку с папками учеников");
     if (!rootFolder) return;
 
-    var outputFolder = new Folder(rootFolder + "/Output_Ready");
+    // --- ДИАЛОГ ВЫБОРА ТИПОГРАФИИ ---
+    var printChoice = "Other";
+    var win = new Window("dialog", "Настройка экспорта ОБЛОЖЕК");
+    win.orientation = "column"; win.alignChildren = ["fill", "top"]; win.spacing = 15; win.margins = 20;
+
+    var txt = win.add("statictext", undefined, "Выберите формат именования:");
+    txt.graphics.font = ScriptUI.newFont("Tahoma", "Bold", 12);
+
+    var rbOther = win.add("radiobutton", undefined, "Обычный (Фамилия Имя.jpg)");
+    var rbPhotofier = win.add("radiobutton", undefined, "Фотофиера (00-XXX.jpg)");
+    rbOther.value = true;
+
+    var btnGroup = win.add("group");
+    btnGroup.alignment = "center";
+    btnGroup.add("button", undefined, "ОК", {name: "ok"});
+    btnGroup.add("button", undefined, "Отмена", {name: "cancel"});
+
+    if (win.show() != 1) return;
+    printChoice = rbOther.value ? "Other" : "Photofier";
+    // ---------------------------------
+
+    var outputFolder = new Folder(rootFolder.parent + "/Covers_Result");
     if (!outputFolder.exists) outputFolder.create();
 
-    // Получаем список папок (игнорируя папку вывода)
-    var folders = rootFolder.getFiles(function(f) { 
-        return f instanceof Folder && f.name !== "Output_Ready"; 
+    var childFolders = rootFolder.getFiles(function(f) {
+        return (f instanceof Folder) && (f.name.indexOf("Result") === -1) && (f.name.indexOf("Output") === -1);
     });
 
-    for (var i = 0; i < folders.length; i++) {
-        var currentFolder = folders[i];
-        var images = currentFolder.getFiles(/\.(jpg|jpeg|png|tif)$/i);
+    for (var i = 0; i < childFolders.length; i++) {
+        var studentFolder = childFolders[i];
+        var photos = studentFolder.getFiles(/\.(jpg|jpeg|png|tif)$/i);
+        if (photos.length === 0) continue;
 
-        if (images.length > 0) {
-            var photoFile = images[0];
-            var studentName = currentFolder.name; // Берем имя из названия папки
-            processStudent(doc, photoFile, studentName, outputFolder);
+        var addedLayer = null;
+        try {
+            // Вставка фото в Основу_1
+            addedLayer = insertAndFit(doc, "Основа_1", photos[0]);
+
+            // Формирование имени файла по спецификации
+            var fileName = "";
+            if (printChoice === "Photofier") {
+                var bookNum = (i + 1).toString();
+                while (bookNum.length < 3) bookNum = "0" + bookNum; // Делаем 001, 002...
+                fileName = "00-" + bookNum; // YY=00 (Обложка), XXX=Номер книги
+            } else {
+                fileName = studentFolder.name;
+            }
+
+            saveFiles(doc, outputFolder, fileName);
+
+            // Очистка шаблона для следующего ученика
+            if (addedLayer) addedLayer.remove();
+            if (i % 5 === 0) app.purge(PurgeTarget.ALLCACHES);
+
+        } catch (e) {
+            alert("Ошибка в папке " + studentFolder.name + ": " + e);
         }
     }
-
-    alert("Готово! Все файлы сохранены в папку Output_Ready");
+    alert("Все обложки готовы!\nСохранено в: " + outputFolder.fsName);
+    outputFolder.execute();
 }
 
-function processStudent(doc, photoFile, studentName, savePath) {
-    var baseLayer;
-    try {
-        baseLayer = doc.layers.getByName("Основа_1");
-    } catch (e) {
-        alert("Критическая ошибка: Слой 'Основа_1' не найден!");
-        return;
-    }
-
-    // 1. Помещаем фото как Smart Object (лучшее качество при масштабе)
-    var photoDoc = open(photoFile);
-    photoDoc.selection.selectAll();
-    photoDoc.selection.copy();
-    photoDoc.close(SaveOptions.DONOTSAVECHANGES);
-
+function insertAndFit(doc, baseName, photoPath) {
+    var baseLayer = doc.layers.getByName(baseName);
     doc.activeLayer = baseLayer;
-    var placedLayer = doc.paste();
-    placedLayer.name = studentName;
+    var desc = new ActionDescriptor();
+    desc.putPath(charIDToTypeID("null"), new File(photoPath));
+    executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
+    var photoLayer = doc.activeLayer;
+    
+    // Кадрирование (Fill)
+    var pB = photoLayer.bounds; var bB = baseLayer.bounds;
+    var pW = pB[2] - pB[0]; var pH = pB[3] - pB[1];
+    var bW = bB[2] - bB[0]; var bH = bB[3] - bB[1];
+    var ratio = Math.max(bW / pW, bH / pH) * 100;
+    photoLayer.resize(ratio, ratio, AnchorPosition.MIDDLECENTER);
+    
+    var pNewB = photoLayer.bounds;
+    var pCenter = [pNewB[0] + (pNewB[2]-pNewB[0])/2, pNewB[1] + (pNewB[3]-pNewB[1])/2];
+    var bCenter = [bB[0] + bW/2, bB[1] + bH/2];
+    photoLayer.translate(bCenter[0] - pCenter[0], bCenter[1] - pCenter[1]);
 
-    // 2. Создаем Clipping Mask (привязываем фото к квадрату)
-    try {
-        createClippingMask();
-    } catch(e) {
-        // Если через экшен не вышло, пробуем через встроенную команду
-    }
-
-    // 3. Автомасштабирование под размер Основы_1
-    fitLayerToTarget(placedLayer, baseLayer);
-
-    // 4. Сохранение JPG
-    var jpgFile = new File(savePath + "/" + studentName + ".jpg");
-    var jpgOptions = new JPEGSaveOptions();
-    jpgOptions.quality = 12;
-    doc.saveAs(jpgFile, jpgOptions, true);
-
-    // 5. Сохранение PSD
-    var psdFile = new File(savePath + "/" + studentName + ".psd");
-    var psdOptions = new PhotoshopSaveOptions();
-    doc.saveAs(psdFile, psdOptions, true);
-
-    // Удаляем вставленный слой перед следующим кругом
-    placedLayer.remove();
+    executeAction(stringIDToTypeID("groupEvent"), undefined, DialogModes.NO);
+    return photoLayer;
 }
 
-function createClippingMask() {
-    var idGrpL = charIDToTypeID("GrpL");
-    executeAction(idGrpL, undefined, DialogModes.NO);
-}
-
-function fitLayerToTarget(layer, target) {
-    var targetBounds = target.bounds; // [left, top, right, bottom]
-    var layerBounds = layer.bounds;
-
-    var targetWidth = targetBounds[2] - targetBounds[0];
-    var targetHeight = targetBounds[3] - targetBounds[1];
-    
-    var layerWidth = layerBounds[2] - layerBounds[0];
-    var layerHeight = layerBounds[3] - layerBounds[1];
-
-    // Вычисляем коэффициент масштабирования (по принципу Cover)
-    var widthRatio = (targetWidth / layerWidth) * 100;
-    var heightRatio = (targetHeight / layerHeight) * 100;
-    
-    // Используем большее значение, чтобы не было пустых углов у квадрата
-    var finalRatio = Math.max(widthRatio, heightRatio);
-
-    layer.resize(finalRatio, finalRatio, AnchorPosition.MIDDLECENTER);
-    
-    // Центрируем слой относительно основы
-    var moveX = ((targetBounds[0] + targetBounds[2]) / 2) - ((layer.bounds[0] + layer.bounds[2]) / 2);
-    var moveY = ((targetBounds[1] + targetBounds[3]) / 2) - ((layer.bounds[1] + layer.bounds[3]) / 2);
-    
-    layer.translate(moveX, moveY);
+function saveFiles(doc, folder, name) {
+    var jpgFile = new File(folder + "/" + name + ".jpg");
+    var psdFile = new File(folder + "/" + name + ".psd");
+    var jpgOpt = new JPEGSaveOptions();
+    jpgOpt.quality = 12;
+    doc.saveAs(jpgFile, jpgOpt, true, Extension.LOWERCASE);
+    doc.saveAs(psdFile, new PhotoshopSaveOptions(), true, Extension.LOWERCASE);
 }
 
 main();
