@@ -1,15 +1,14 @@
 #target photoshop
 
 /**
- * Улучшенная функция получения ключа
+ * Функция поиска ключа в памяти Photoshop
  */
 function getStoredLicenseKey() {
-    // 1. Пытаемся взять из глобальной переменной (самый быстрый способ)
+    // 1. Проверка в глобальной переменной
     if (typeof app.vignetteKey !== 'undefined' && app.vignetteKey !== null) {
         return app.vignetteKey;
     }
-    
-    // 2. Пытаемся взять из ActionDescriptor
+    // 2. Проверка в ActionDescriptor
     try {
         var ref = new ActionReference();
         ref.putProperty(charIDToTypeID('Prpt'), stringIDToTypeID('vignette_license_key'));
@@ -23,14 +22,15 @@ function getStoredLicenseKey() {
 
 function main() {
     try {
+        // --- ПРОВЕРКА ЗАЩИТЫ ---
         var key = getStoredLicenseKey();
         if (!key) {
-            alert("ОШИБКА АКТИВАЦИИ: Ключ не найден в памяти Photoshop.\nПопробуйте перезапустить панель.");
+            alert("ОШИБКА АКТИВАЦИИ: Ключ не найден в памяти Photoshop. Пожалуйста, перезапустите панель.");
             return;
         }
 
         if (app.documents.length === 0) {
-            alert("Откройте PSD шаблон с виньетками!");
+            alert("Откройте PSD шаблон!");
             return;
         }
 
@@ -66,10 +66,10 @@ function main() {
         }
 
         applyClippingMasks(doc);
-        alert("Успешно завершено!");
+        alert("Готово! Виньетки заполнены.");
 
-    } catch (err) {
-        alert("Ошибка выполнения скрипта: " + err);
+    } catch (globalErr) {
+        alert("Критическая ошибка: " + globalErr);
     }
 }
 
@@ -78,6 +78,7 @@ function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
         var txtLayer = findLayer(doc, textLayerName);
         if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
+            txtLayer.name = nameText;
         }
 
         var placeholder = findLayer(doc, baseLayerName);
@@ -94,7 +95,7 @@ function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
         photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
 
         fitToTarget(photoLayer, placeholder);
-    } catch (e) {}
+    } catch (err) {}
 }
 
 function applyClippingMasks(container) {
@@ -106,11 +107,11 @@ function applyClippingMasks(container) {
         }
         if (lyr.name.indexOf("IMG_") !== 0) continue;
         
-        var index = -1;
-        for(var j=0; j<container.layers.length; j++) { if(container.layers[j] == lyr) index = j; }
+        var idx = -1;
+        for(var j=0; j<container.layers.length; j++) { if(container.layers[j] == lyr) idx = j; }
         
-        if (index !== -1 && index + 1 < container.layers.length) {
-            var below = container.layers[index+1];
+        if (idx !== -1 && idx + 1 < container.layers.length) {
+            var below = container.layers[idx+1];
             if (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0) {
                 lyr.grouped = true; 
             }
