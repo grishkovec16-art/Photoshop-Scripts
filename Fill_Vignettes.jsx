@@ -1,6 +1,29 @@
 #target photoshop
 
+/**
+ * Функция получения ключа из памяти Photoshop, 
+ * который туда записывает ваша панель (index.html)
+ */
+function getStoredLicenseKey() {
+    try {
+        var ref = new ActionReference();
+        ref.putProperty(charIDToTypeID('Prpt'), stringIDToTypeID('vignette_license_key'));
+        ref.putEnumerated(charIDToTypeID('capp'), charIDToTypeID('Ordn'), charIDToTypeID('Trgt'));
+        var result = executeActionGet(ref);
+        return result.getString(stringIDToTypeID('vignette_license_key'));
+    } catch (e) { 
+        return null; 
+    }
+}
+
 function main() {
+    // --- ПРОВЕРКА ЗАЩИТЫ ---
+    var key = getStoredLicenseKey();
+    if (!key) {
+        alert("ОШИБКА: Плагин не активирован! Пожалуйста, введите ключ в панели.");
+        return;
+    }
+
     if (app.documents.length === 0) {
         alert("Откройте PSD шаблон!");
         return;
@@ -46,20 +69,16 @@ function main() {
     alert("Готово! Фотографии расставлены, привязаны и имена обновлены.");
 }
 
-// =================================================
 // ================== ОСНОВНАЯ ЛОГИКА =================
-// =================================================
 
 function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
     try {
-        // 1. Имя
         var txtLayer = findLayer(doc, textLayerName);
         if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
             txtLayer.name = nameText;
         }
 
-        // 2. Фото
         var placeholder = findLayer(doc, baseLayerName);
         if (!placeholder) return;
 
@@ -68,8 +87,6 @@ function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
 
         var photoLayer = doc.activeLayer;
         photoLayer.name = "IMG_" + nameText;
-
-        // ВАЖНО: строго НАД подложкой
         photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
 
         fitToTarget(photoLayer, placeholder);
@@ -79,30 +96,20 @@ function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
     }
 }
 
-// =================================================
 // =============== ПРИВЯЗКА (FIX ДЛЯ УЧИТЕЛЯ) ===================
-// =================================================
 
 function applyClippingMasks(container) {
     for (var i = 0; i < container.layers.length; i++) {
         var lyr = container.layers[i];
-
         if (lyr.typename === "LayerSet") {
             applyClippingMasks(lyr);
             continue;
         }
-
         if (lyr.name.indexOf("IMG_") !== 0) continue;
-
         var below = getLayerBelow(container, i);
         if (!below) continue;
-
-        // Проверяем Фото_ ИЛИ Учитель_
-        if (
-            below.typename === "ArtLayer" &&
-            (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0)
-        ) {
-            lyr.grouped = true; // ✅ Обтравочная маска
+        if (below.typename === "ArtLayer" && (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0)) {
+            lyr.grouped = true; 
         }
     }
 }
@@ -112,9 +119,7 @@ function getLayerBelow(container, index) {
     return container.layers[index + 1];
 }
 
-// =================================================
 // ================= ВСПОМОГАТЕЛЬНЫЕ =================
-// =================================================
 
 function findFirstImageRecursive(folder) {
     var files = folder.getFiles();
@@ -152,23 +157,14 @@ function fitToTarget(layer, target) {
     var b = target.bounds;
     var tw = b[2].as("px") - b[0].as("px");
     var th = b[3].as("px") - b[1].as("px");
-
     var lb = layer.bounds;
     var lw = lb[2].as("px") - lb[0].as("px");
     var lh = lb[3].as("px") - lb[1].as("px");
-
     var scale = Math.max(tw / lw, th / lh) * 100;
     layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
-
-    var dx = (b[0].as("px") + tw / 2) -
-        (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px")) / 2);
-
-    var dy = (b[1].as("px") + th / 2) -
-        (layer.bounds[1].as("px") + (layer.bounds[3].as("px") - layer.bounds[1].as("px")) / 2);
-
+    var dx = (b[0].as("px") + tw / 2) - (layer.bounds[0].as("px") + (layer.bounds[2].as("px") - layer.bounds[0].as("px")) / 2);
+    var dy = (b[1].as("px") + th / 2) - (layer.bounds[1].as("px") + (layer.bounds[3].as("px") - layer.bounds[1].as("px")) / 2);
     layer.translate(dx, dy);
 }
-
-// =================================================
 
 main();
