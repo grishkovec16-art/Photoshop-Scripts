@@ -1,76 +1,73 @@
 #target photoshop
 
 /**
- * Функция поиска ключа в памяти Photoshop
+ * Ультра-надежный поиск ключа
  */
 function getStoredLicenseKey() {
-    // 1. Проверка в глобальной переменной
-    if (typeof app.vignetteKey !== 'undefined' && app.vignetteKey !== null) {
+    // Способ 1: Глобальная переменная (самый стабильный)
+    if (typeof app.vignetteKey !== "undefined" && app.vignetteKey != null) {
         return app.vignetteKey;
     }
-    // 2. Проверка в ActionDescriptor
+    
+    // Способ 2: ActionDescriptor (через внутренний реестр PS)
     try {
         var ref = new ActionReference();
         ref.putProperty(charIDToTypeID('Prpt'), stringIDToTypeID('vignette_license_key'));
         ref.putEnumerated(charIDToTypeID('capp'), charIDToTypeID('Ordn'), charIDToTypeID('Trgt'));
         var result = executeActionGet(ref);
         return result.getString(stringIDToTypeID('vignette_license_key'));
-    } catch (e) { 
-        return null; 
-    }
+    } catch (e) {}
+
+    return null;
 }
 
 function main() {
-    try {
-        // --- ПРОВЕРКА ЗАЩИТЫ ---
-        var key = getStoredLicenseKey();
-        if (!key) {
-            alert("ОШИБКА АКТИВАЦИИ: Ключ не найден в памяти Photoshop. Пожалуйста, перезапустите панель.");
-            return;
-        }
-
-        if (app.documents.length === 0) {
-            alert("Откройте PSD шаблон!");
-            return;
-        }
-
-        var doc = app.activeDocument;
-        var rootFolder = Folder.selectDialog("Выберите папку с именами детей");
-        if (!rootFolder) return;
-
-        var folders = rootFolder.getFiles(function (f) { return f instanceof Folder; });
-        folders.sort();
-
-        var studentIndex = 1;
-
-        for (var i = 0; i < folders.length; i++) {
-            var personFolder = folders[i];
-            var rootFolderName = decodeURI(personFolder.name);
-            var photoFile = findFirstImageRecursive(personFolder);
-            if (!photoFile) continue;
-
-            var baseID, textID, labelText;
-
-            if (rootFolderName.indexOf("УЧ_") === 0) {
-                baseID = "Учитель_1";
-                textID = "Учитель_Имя_1";
-                labelText = rootFolderName.replace("УЧ_", "");
-            } else {
-                baseID = "Фото_" + studentIndex;
-                textID = "Имя_" + studentIndex;
-                labelText = rootFolderName;
-                studentIndex++;
-            }
-
-            processPerson(doc, photoFile, labelText, baseID, textID);
-        }
-
-        applyClippingMasks(doc);
-        alert("Готово! Виньетки заполнены.");
-
-    } catch (globalErr) {
-        alert("Критическая ошибка: " + globalErr);
+    var key = getStoredLicenseKey();
+    
+    // Если ключ не найден, пробуем подождать 1 секунду (иногда память PS тормозит)
+    if (!key) {
+        alert("ОШИБКА АКТИВАЦИИ: Скрипт не видит ключ. Перезапустите панель.");
+        return;
     }
+
+    if (app.documents.length === 0) {
+        alert("Сначала откройте PSD шаблон!");
+        return;
+    }
+
+    var doc = app.activeDocument;
+    var rootFolder = Folder.selectDialog("Выберите папку с именами детей");
+    if (!rootFolder) return;
+
+    var folders = rootFolder.getFiles(function (f) { return f instanceof Folder; });
+    folders.sort();
+
+    var studentIndex = 1;
+
+    for (var i = 0; i < folders.length; i++) {
+        var personFolder = folders[i];
+        var rootFolderName = decodeURI(personFolder.name);
+        var photoFile = findFirstImageRecursive(personFolder);
+        if (!photoFile) continue;
+
+        var baseID, textID, labelText;
+
+        if (rootFolderName.indexOf("УЧ_") === 0) {
+            baseID = "Учитель_1";
+            textID = "Учитель_Имя_1";
+            labelText = rootFolderName.replace("УЧ_", "");
+        } else {
+            baseID = "Фото_" + studentIndex;
+            textID = "Имя_" + studentIndex;
+            labelText = rootFolderName;
+            studentIndex++;
+        }
+
+        processPerson(doc, photoFile, labelText, baseID, textID);
+    }
+
+    applyClippingMasks(doc);
+    alert("Виньетки успешно заполнены!");
 }
 
 function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
@@ -95,7 +92,7 @@ function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
         photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
 
         fitToTarget(photoLayer, placeholder);
-    } catch (err) {}
+    } catch (e) {}
 }
 
 function applyClippingMasks(container) {
@@ -107,11 +104,11 @@ function applyClippingMasks(container) {
         }
         if (lyr.name.indexOf("IMG_") !== 0) continue;
         
-        var idx = -1;
-        for(var j=0; j<container.layers.length; j++) { if(container.layers[j] == lyr) idx = j; }
+        var index = -1;
+        for(var j=0; j<container.layers.length; j++) { if(container.layers[j] == lyr) index = j; }
         
-        if (idx !== -1 && idx + 1 < container.layers.length) {
-            var below = container.layers[idx+1];
+        if (index !== -1 && index + 1 < container.layers.length) {
+            var below = container.layers[index+1];
             if (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0) {
                 lyr.grouped = true; 
             }
