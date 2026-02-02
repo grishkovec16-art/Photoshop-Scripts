@@ -1,9 +1,15 @@
 #target photoshop
 
 /**
- * Функция получения ключа из памяти Photoshop
+ * Улучшенная функция получения ключа
  */
 function getStoredLicenseKey() {
+    // 1. Пытаемся взять из глобальной переменной (самый быстрый способ)
+    if (typeof app.vignetteKey !== 'undefined' && app.vignetteKey !== null) {
+        return app.vignetteKey;
+    }
+    
+    // 2. Пытаемся взять из ActionDescriptor
     try {
         var ref = new ActionReference();
         ref.putProperty(charIDToTypeID('Prpt'), stringIDToTypeID('vignette_license_key'));
@@ -17,15 +23,14 @@ function getStoredLicenseKey() {
 
 function main() {
     try {
-        // --- ПРОВЕРКА ЗАЩИТЫ ---
         var key = getStoredLicenseKey();
         if (!key) {
-            alert("ОШИБКА: Плагин не активирован! Пожалуйста, введите ключ в панели.");
+            alert("ОШИБКА АКТИВАЦИИ: Ключ не найден в памяти Photoshop.\nПопробуйте перезапустить панель.");
             return;
         }
 
         if (app.documents.length === 0) {
-            alert("Откройте PSD шаблон!");
+            alert("Откройте PSD шаблон с виньетками!");
             return;
         }
 
@@ -38,17 +43,14 @@ function main() {
 
         var studentIndex = 1;
 
-        // --- ЭТАП 1: РАССТАНОВКА ФОТО И ИМЕН ---
         for (var i = 0; i < folders.length; i++) {
             var personFolder = folders[i];
             var rootFolderName = decodeURI(personFolder.name);
-
             var photoFile = findFirstImageRecursive(personFolder);
             if (!photoFile) continue;
 
             var baseID, textID, labelText;
 
-            // Логика Учитель / Ученик
             if (rootFolderName.indexOf("УЧ_") === 0) {
                 baseID = "Учитель_1";
                 textID = "Учитель_Имя_1";
@@ -63,82 +65,58 @@ function main() {
             processPerson(doc, photoFile, labelText, baseID, textID);
         }
 
-        // --- ЭТАП 2: ПРИВЯЗКА МАСОК ---
         applyClippingMasks(doc);
+        alert("Успешно завершено!");
 
-        alert("Готово! Все фотографии расставлены и привязаны.");
-
-    } catch (globalErr) {
-        alert("Критическая ошибка выполнения: " + globalErr);
+    } catch (err) {
+        alert("Ошибка выполнения скрипта: " + err);
     }
 }
 
-// ================== ЛОГИКА ОБРАБОТКИ УЧЕНИКА =================
-
 function processPerson(doc, file, nameText, baseLayerName, textLayerName) {
     try {
-        // Обновление текста
         var txtLayer = findLayer(doc, textLayerName);
         if (txtLayer && txtLayer.kind === LayerKind.TEXT) {
             txtLayer.textItem.contents = nameText;
         }
 
-        // Поиск подложки
         var placeholder = findLayer(doc, baseLayerName);
         if (!placeholder) return;
 
         doc.activeLayer = placeholder;
         
-        // Вставка фото
         var desc = new ActionDescriptor();
         desc.putPath(charIDToTypeID("null"), new File(file));
         executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
 
         var photoLayer = doc.activeLayer;
         photoLayer.name = "IMG_" + nameText;
-        
-        // Перемещение над подложку
         photoLayer.move(placeholder, ElementPlacement.PLACEBEFORE);
 
-        // Масштабирование
         fitToTarget(photoLayer, placeholder);
-
-    } catch (err) {
-        $.writeln("Ошибка обработки " + nameText + ": " + err);
-    }
+    } catch (e) {}
 }
-
-// =============== ЛОГИКА CLIPPING MASK ===================
 
 function applyClippingMasks(container) {
     for (var i = 0; i < container.layers.length; i++) {
         var lyr = container.layers[i];
-        
-        // Рекурсия для групп
         if (lyr.typename === "LayerSet") {
             applyClippingMasks(lyr);
             continue;
         }
-        
-        // Проверка: это вставленное фото?
         if (lyr.name.indexOf("IMG_") !== 0) continue;
         
-        var below = getLayerBelow(container, i);
-        if (!below) continue;
+        var index = -1;
+        for(var j=0; j<container.layers.length; j++) { if(container.layers[j] == lyr) index = j; }
         
-        // Если слой ниже - это подложка, создаем обтравочную маску
-        if (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0) {
-            lyr.grouped = true; 
+        if (index !== -1 && index + 1 < container.layers.length) {
+            var below = container.layers[index+1];
+            if (below.name.indexOf("Фото_") === 0 || below.name.indexOf("Учитель_") === 0) {
+                lyr.grouped = true; 
+            }
         }
     }
 }
-
-function getLayerBelow(container, index) {
-    if (index + 1 >= container.layers.length) return null;
-    return container.layers[index + 1];
-}
-
-// ================= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =================
 
 function findFirstImageRecursive(folder) {
     var files = folder.getFiles();
@@ -171,28 +149,14 @@ function fitToTarget(layer, target) {
         var b = target.bounds;
         var tw = b[2].as("px") - b[0].as("px");
         var th = b[3].as("px") - b[1].as("px");
-        
         var lb = layer.bounds;
         var lw = lb[2].as("px") - lb[0].as("px");
         var lh = lb[3].as("px") - lb[1].as("px");
-        
-        if (lw === 0 || lh === 0) return;
-
         var scale = Math.max(tw / lw, th / lh) * 100;
         layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
-        
-        // Центрирование
-        var pBounds = layer.bounds;
-        var pCenter = [
-            pBounds[0].as("px") + (pBounds[2].as("px") - pBounds[0].as("px")) / 2,
-            pBounds[1].as("px") + (pBounds[3].as("px") - pBounds[1].as("px")) / 2
-        ];
-        var tCenter = [
-            b[0].as("px") + tw / 2,
-            b[1].as("px") + th / 2
-        ];
-        
-        layer.translate(tCenter[0] - pCenter[0], tCenter[1] - pCenter[1]);
+        var nb = layer.bounds;
+        layer.translate((b[0].as("px") + tw/2) - (nb[0].as("px") + (nb[2].as("px")-nb[0].as("px"))/2), 
+                        (b[1].as("px") + th/2) - (nb[1].as("px") + (nb[3].as("px")-nb[1].as("px"))/2));
     } catch (e) {}
 }
 
