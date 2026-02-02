@@ -1,6 +1,29 @@
 #target photoshop
 
+/**
+ * Функция получения ключа из памяти Photoshop, 
+ * который туда записывает ваша панель (index.html)
+ */
+function getStoredLicenseKey() {
+    try {
+        var ref = new ActionReference();
+        ref.putProperty(charIDToTypeID('Prpt'), stringIDToTypeID('vignette_license_key'));
+        ref.putEnumerated(charIDToTypeID('capp'), charIDToTypeID('Ordn'), charIDToTypeID('Trgt'));
+        var result = executeActionGet(ref);
+        return result.getString(stringIDToTypeID('vignette_license_key'));
+    } catch (e) { 
+        return null; 
+    }
+}
+
 function main() {
+    // --- ПРОВЕРКА ЗАЩИТЫ ---
+    var key = getStoredLicenseKey();
+    if (!key) {
+        alert("ОШИБКА: Плагин не активирован! Пожалуйста, введите ключ в панели.");
+        return;
+    }
+
     // 1. Выбор папки с исходными JPG (где имена детей)
     var inputFolder = Folder.selectDialog("Выберите папку с JPG (например, Output_Ready)");
     if (!inputFolder) return;
@@ -21,6 +44,7 @@ function main() {
     }
 
     // 4. Процесс копирования и переименования
+    var successCount = 0;
     for (var i = 0; i < files.length; i++) {
         var sourceFile = files[i];
         var index = i + 1;
@@ -33,12 +57,12 @@ function main() {
         
         // ВАЖНО: Используем копирование, чтобы исходники остались на месте
         if (sourceFile.copy(destFile)) {
-            // Файл успешно скопирован под новым именем
+            successCount++;
         }
     }
 
-    alert("Успешно!\nСкопировано и переименовано: " + files.length + " шт.\nПапка: " + outputFolder.fsName);
-    outputFolder.execute(); // Открыть готовую папку
+    alert("Успешно!\nСкопировано файлов: " + successCount + "\nПапка: " + outputFolder.fsName);
+    outputFolder.execute();
 }
 
 main();
