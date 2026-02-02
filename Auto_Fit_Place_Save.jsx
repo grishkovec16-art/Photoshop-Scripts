@@ -4,127 +4,134 @@
  * Ультра-надежный поиск ключа
  */
 function getStoredLicenseKey() {
+    // 1. Проверка в глобальной переменной приложения
     if (typeof app.vignetteKey !== 'undefined' && app.vignetteKey !== null) {
         return app.vignetteKey;
     }
+    // 2. Проверка в ActionDescriptor (реестр Photoshop)
     try {
         var ref = new ActionReference();
         ref.putProperty(charIDToTypeID('Prpt'), stringIDToTypeID('vignette_license_key'));
         ref.putEnumerated(charIDToTypeID('capp'), charIDToTypeID('Ordn'), charIDToTypeID('Trgt'));
         var result = executeActionGet(ref);
         return result.getString(stringIDToTypeID('vignette_license_key'));
-    } catch (e) { return null; }
+    } catch (e) { 
+        return null; 
+    }
 }
 
 function main() {
-    try {
-        var key = getStoredLicenseKey();
-        if (!key) {
-            alert("ОШИБКА АКТИВАЦИИ: Ключ не найден. Запустите панель.");
-            return;
-        }
+    // --- БЛОК ПРОВЕРКИ АКТИВАЦИИ ---
+    var key = getStoredLicenseKey();
+    if (!key) {
+        alert("ОШИБКА: Плагин не активирован! Пожалуйста, введите ключ в панели.");
+        return;
+    }
+    // ------------------------------
 
-        if (app.documents.length === 0) {
-            alert("Откройте PSD шаблон обложки!");
-            return;
-        }
+    if (app.documents.length === 0) { 
+        alert("Ошибка: Откройте шаблон ОБЛОЖКИ!"); 
+        return; 
+    }
+    
+    var doc = app.activeDocument;
+    var rootFolder = Folder.selectDialog("Выберите папку с папками учеников");
+    if (!rootFolder) return;
 
-        var doc = app.activeDocument;
-        
-        // Выбор папки с готовыми ПНГ/ДЖПЕГ файлами или папками детей
-        var sourceFolder = Folder.selectDialog("Выберите папку с фотографиями для обложек");
-        if (!sourceFolder) return;
+    // --- ДИАЛОГ ВЫБОРА ТИПОГРАФИИ ---
+    var printChoice = "Other";
+    var win = new Window("dialog", "Настройка экспорта ОБЛОЖЕК");
+    win.orientation = "column"; win.alignChildren = ["fill", "top"]; win.spacing = 15; win.margins = 20;
 
-        var saveFolder = Folder.selectDialog("Выберите папку для СОХРАНЕНИЯ готовых обложек");
-        if (!saveFolder) return;
+    var txt = win.add("statictext", undefined, "Выберите формат именования:");
+    txt.graphics.font = ScriptUI.newFont("Tahoma", "Bold", 12);
 
-        var files = sourceFolder.getFiles(/\.(jpg|jpeg|png|tif|psd)$/i);
-        if (files.length === 0) {
-            alert("В выбранной папке не найдено подходящих изображений!");
-            return;
-        }
+    var rbOther = win.add("radiobutton", undefined, "Обычный (Фамилия Имя.jpg)");
+    var rbPhotofier = win.add("radiobutton", undefined, "Фотофиера (00-XXX.jpg)");
+    rbOther.value = true;
 
-        // Ищем слой-подложку, куда вставлять фото (обычно называется "Фото_Обложка" или "Placeholder")
-        var targetLayer = findLayer(doc, "Фото_Обложка") || findLayer(doc, "Placeholder") || doc.activeLayer;
+    var btnGroup = win.add("group");
+    btnGroup.alignment = "center";
+    btnGroup.add("button", undefined, "ОК", {name: "ok"});
+    btnGroup.add("button", undefined, "Отмена", {name: "cancel"});
 
-        for (var i = 0; i < files.length; i++) {
-            var currentFile = files[i];
-            var fileName = decodeURI(currentFile.name).split('.')[0];
+    if (win.show() != 1) return;
+    printChoice = rbOther.value ? "Other" : "Photofier";
+    // ---------------------------------
 
-            // 1. Вставляем фото
-            doc.activeLayer = targetLayer;
-            placeSmartObject(currentFile);
-            var photoLayer = doc.activeLayer;
-            photoLayer.name = "Cover_Photo_" + fileName;
+    var outputFolder = new Folder(rootFolder.parent + "/Covers_Result");
+    if (!outputFolder.exists) outputFolder.create();
 
-            // 2. Подгоняем под размер и центрируем
-            fitToTarget(photoLayer, targetLayer);
-            
-            // 3. Если нужно привязываем маской (clipping mask)
-            try { photoLayer.grouped = true; } catch(e) {}
+    var childFolders = rootFolder.getFiles(function(f) {
+        return (f instanceof Folder) && (f.name.indexOf("Result") === -1) && (f.name.indexOf("Output") === -1);
+    });
 
-            // 4. Обновляем имя на обложке (если есть слой "Имя")
-            var nameLayer = findLayer(doc, "Имя_Обложка") || findLayer(doc, "Имя");
-            if (nameLayer && nameLayer.kind === LayerKind.TEXT) {
-                nameLayer.textItem.contents = fileName.replace(/_/g, " ");
+    for (var i = 0; i < childFolders.length; i++) {
+        var studentFolder = childFolders[i];
+        var photos = studentFolder.getFiles(/\.(jpg|jpeg|png|tif)$/i);
+        if (photos.length === 0) continue;
+
+        var addedLayer = null;
+        try {
+            // Вставка фото в Основу_1
+            addedLayer = insertAndFit(doc, "Основа_1", photos[0]);
+
+            // Формирование имени файла по спецификации
+            var fileName = "";
+            if (printChoice === "Photofier") {
+                var bookNum = (i + 1).toString();
+                while (bookNum.length < 3) bookNum = "0" + bookNum; 
+                fileName = "00-" + bookNum; 
+            } else {
+                fileName = studentFolder.name;
             }
 
-            // 5. Сохраняем в JPG
-            var saveFile = new File(saveFolder + "/" + fileName + "_Cover.jpg");
-            saveAsJpeg(saveFile, 10);
+            saveFiles(doc, outputFolder, fileName);
 
-            // 6. Удаляем слой с фото, чтобы подготовить шаблон для следующего
-            photoLayer.remove();
-        }
+            // Очистка шаблона для следующего ученика
+            if (addedLayer) addedLayer.remove();
+            if (i % 5 === 0) app.purge(PurgeTarget.ALLCACHES);
 
-        alert("Готово! Все обложки сохранены в: " + saveFolder.fsName);
-
-    } catch (err) {
-        alert("Ошибка в скрипте обложек: " + err);
-    }
-}
-
-// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-
-function findLayer(container, name) {
-    for (var i = 0; i < container.layers.length; i++) {
-        var lyr = container.layers[i];
-        if (lyr.name === name) return lyr;
-        if (lyr.typename === "LayerSet") {
-            var res = findLayer(lyr, name);
-            if (res) return res;
+        } catch (e) {
+            alert("Ошибка в папке " + studentFolder.name + ": " + e);
         }
     }
-    return null;
+    alert("Все обложки готовы!\nСохранено в: " + outputFolder.fsName);
+    outputFolder.execute();
 }
 
-function placeSmartObject(file) {
+function insertAndFit(doc, baseName, photoPath) {
+    var baseLayer = doc.layers.getByName(baseName);
+    doc.activeLayer = baseLayer;
     var desc = new ActionDescriptor();
-    desc.putPath(charIDToTypeID("null"), new File(file));
+    desc.putPath(charIDToTypeID("null"), new File(photoPath));
     executeAction(charIDToTypeID("Plc "), desc, DialogModes.NO);
+    var photoLayer = doc.activeLayer;
+    
+    // Кадрирование (Fill)
+    var pB = photoLayer.bounds; var bB = baseLayer.bounds;
+    var pW = pB[2] - pB[0]; var pH = pB[3] - pB[1];
+    var bW = bB[2] - bB[0]; var bH = bB[3] - bB[1];
+    var ratio = Math.max(bW / pW, bH / pH) * 100;
+    photoLayer.resize(ratio, ratio, AnchorPosition.MIDDLECENTER);
+    
+    var pNewB = photoLayer.bounds;
+    var pCenter = [pNewB[0] + (pNewB[2]-pNewB[0])/2, pNewB[1] + (pNewB[3]-pNewB[1])/2];
+    var bCenter = [bB[0] + bW/2, bB[1] + bH/2];
+    photoLayer.translate(bCenter[0] - pCenter[0], bCenter[1] - pCenter[1]);
+
+    // Создание обтравочной маски (Clipping Mask)
+    executeAction(stringIDToTypeID("groupEvent"), undefined, DialogModes.NO);
+    return photoLayer;
 }
 
-function fitToTarget(layer, target) {
-    var b = target.bounds;
-    var tw = b[2].as("px") - b[0].as("px");
-    var th = b[3].as("px") - b[1].as("px");
-    var lb = layer.bounds;
-    var lw = lb[2].as("px") - lb[0].as("px");
-    var lh = lb[3].as("px") - lb[1].as("px");
-    var scale = Math.max(tw / lw, th / lh) * 100;
-    layer.resize(scale, scale, AnchorPosition.MIDDLECENTER);
-    var nb = layer.bounds;
-    layer.translate((b[0].as("px") + tw/2) - (nb[0].as("px") + (nb[2].as("px")-nb[0].as("px"))/2), 
-                    (b[1].as("px") + th/2) - (nb[1].as("px") + (nb[3].as("px")-nb[1].as("px"))/2));
-}
-
-function saveAsJpeg(file, quality) {
-    var opts = new JPEGSaveOptions();
-    opts.quality = quality;
-    opts.embedColorProfile = true;
-    opts.formatOptions = FormatOptions.PROGRESSIVE;
-    opts.scans = 3;
-    app.activeDocument.saveAs(file, opts, true, Extension.LOWERCASE);
+function saveFiles(doc, folder, name) {
+    var jpgFile = new File(folder + "/" + name + ".jpg");
+    var psdFile = new File(folder + "/" + name + ".psd");
+    var jpgOpt = new JPEGSaveOptions();
+    jpgOpt.quality = 12;
+    doc.saveAs(jpgFile, jpgOpt, true, Extension.LOWERCASE);
+    doc.saveAs(psdFile, new PhotoshopSaveOptions(), true, Extension.LOWERCASE);
 }
 
 main();
