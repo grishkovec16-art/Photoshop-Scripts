@@ -1,56 +1,58 @@
 #target photoshop
 
-function main() {
-    if (app.documents.length === 0) {
-        alert("Пожалуйста, сначала создайте документ!");
-        return;
-    }
+function showConstructor() {
+    var presets = [
+        {id: "vignette_8", name: "8 Учеников", file: "vignette_8.jpg"},
+        {id: "vignette_24_teach_center", name: "24 Уч. + Учитель", file: "vignette_24_teach_center.jpg"},
+        {id: "vignette_30_classic", name: "30 Учеников (5х6)", file: "vignette_30_classic.jpg"}
+    ];
 
-    var presetId = (typeof selectedPreset !== 'undefined') ? selectedPreset : "vignette_8";
+    // Окно диалога
+    var win = new Window("dialog", "Конструктор Виньеток PRO");
+    win.orientation = "column";
+    win.alignChildren = ["fill", "top"];
+    win.spacing = 10;
+    win.margins = 16;
+
+    win.add("statictext", undefined, "ВЫБОР ШАБЛОНА:").graphics.font = ScriptUI.newFont("Tahoma", "BOLD", 14);
+
+    // Группа выбора
+    var mainGrp = win.add("group");
+    mainGrp.orientation = "row";
     
-    var library = {
-        "vignette_8": { total: 8, cols: 4, teacher: "none" },
-        "vignette_24_teach_center": { total: 24, cols: 6, teacher: "center" },
-        "vignette_30_classic": { total: 30, cols: 5, teacher: "none" }
-    };
+    var list = mainGrp.add("dropdownlist", [0, 0, 200, 30]);
+    for (var i = 0; i < presets.length; i++) list.add("item", presets[i].name);
+    list.selection = 0;
 
-    var cfg = library[presetId];
-    if (!cfg) return;
+    // Превью
+    var imgPnl = mainGrp.add("panel", undefined, "Превью");
+    var preview = imgPnl.add("image", [0, 0, 250, 180]);
 
-    app.activeDocument.suspendHistory("Генерация сетки", "drawGrid(app.activeDocument, cfg)");
-}
-
-function drawGrid(doc, cfg) {
-    var w = doc.width.as("px");
-    var h = doc.height.as("px");
-    var margin = w * 0.08; 
-    var curY = margin;
-
-    if (cfg.teacher === "center") {
-        var tW = (w / cfg.cols) * 1.4;
-        var tH = tW * 1.35;
-        createLayerBox(doc, "Учитель_1", (w/2 - tW/2), curY, tW, tH);
-        curY += tH + (h * 0.08);
+    // Функция обновления превью
+    function updateImg() {
+        var path = Folder.userData + "/Adobe/CEP/extensions/com.vignette.cloud/assets/previews/" + presets[list.selection.index].file;
+        var f = new File(path);
+        if (f.exists) preview.image = f;
     }
 
-    var cellW = (w - margin * 2) / cfg.cols;
-    var boxW = cellW * 0.85;
-    var boxH = boxW * 1.35;
+    list.onChange = updateImg;
+    updateImg();
 
-    for (var i = 0; i < cfg.total; i++) {
-        var r = Math.floor(i / cfg.cols);
-        var c = i % cfg.cols;
-        createLayerBox(doc, "Фото_" + (i + 1), margin + (c * cellW) + (cellW - boxW) / 2, curY + (r * (boxH * 1.45)), boxW, boxH);
+    // Чекбокс учителя
+    var checkTeacher = win.add("checkbox", undefined, "Добавить учителя в центр");
+    checkTeacher.value = true;
+
+    // Кнопки
+    var btnGrp = win.add("group");
+    btnGrp.alignment = "right";
+    var btnCancel = btnGrp.add("button", undefined, "ОТМЕНА", {name: "cancel"});
+    var btnOk = btnGrp.add("button", undefined, "СОЗДАТЬ", {name: "ok"});
+
+    if (win.show() == 1) {
+        // Здесь запускается ваша логика отрисовки слоев
+        alert("Запуск генерации макета: " + presets[list.selection.index].id);
+        // Вызов функции отрисовки...
     }
 }
 
-function createLayerBox(doc, name, x, y, w, h) {
-    var layer = doc.artLayers.add();
-    layer.name = name;
-    doc.selection.select([[x,y], [x+w,y], [x+w,y+h], [x,y+h]]);
-    var color = new SolidColor(); color.rgb.hex = "CCCCCC";
-    doc.selection.fill(color);
-    doc.selection.deselect();
-}
-
-main();
+showConstructor();
