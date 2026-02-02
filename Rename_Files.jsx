@@ -1,10 +1,14 @@
 #target photoshop
 
 /**
- * Функция получения ключа из памяти Photoshop, 
- * который туда записывает ваша панель (index.html)
+ * Ультра-надежный поиск ключа
  */
 function getStoredLicenseKey() {
+    // 1. Проверка в глобальной переменной
+    if (typeof app.vignetteKey !== 'undefined' && app.vignetteKey !== null) {
+        return app.vignetteKey;
+    }
+    // 2. Проверка в ActionDescriptor
     try {
         var ref = new ActionReference();
         ref.putProperty(charIDToTypeID('Prpt'), stringIDToTypeID('vignette_license_key'));
@@ -16,68 +20,44 @@ function getStoredLicenseKey() {
     }
 }
 
-function renameJpegsWithIndex() {
-    // --- ПРОВЕРКА ЗАЩИТЫ ---
-    var key = getStoredLicenseKey();
-    if (!key) {
-        alert("ОШИБКА: Плагин не активирован! Пожалуйста, введите ключ в панели.");
-        return;
-    }
-
-    // Выбор корневой папки (например, "Обложка")
-    var rootFolder = Folder.selectDialog("Выберите корневую папку (например, 'Обложка')");
-    if (rootFolder == null) return; 
-
-    var items = rootFolder.getFiles();
-    var folderCount = 0;
-    var fileCount = 0;
-
-    for (var i = 0; i < items.length; i++) {
-        if (items[i] instanceof Folder) {
-            var currentFolder = items[i];
-            var folderName = currentFolder.name;
-            
-            // Получаем список только JPG файлов
-            var allFiles = currentFolder.getFiles();
-            var jpgFiles = [];
-            
-            for (var f = 0; f < allFiles.length; f++) {
-                if (allFiles[f] instanceof File && allFiles[f].name.match(/\.(jpg|jpeg)$/i)) {
-                    jpgFiles.push(allFiles[f]);
-                }
-            }
-
-            // Сортируем файлы по имени перед переименованием
-            jpgFiles.sort();
-
-            // Переименовываем найденные файлы
-            for (var j = 0; j < jpgFiles.length; j++) {
-                var file = jpgFiles[j];
-                var ext = file.name.split('.').pop();
-                var newName;
-
-                if (jpgFiles.length > 1) {
-                    // Если файлов несколько, добавляем _1, _2 и т.д.
-                    newName = folderName + "_" + (j + 1) + "." + ext;
-                } else {
-                    // Если файл один, оставляем только имя папки
-                    newName = folderName + "." + ext;
-                }
-
-                var newFile = new File(file.parent + "/" + newName);
-                
-                // Проверка, чтобы не переименовать в то же самое имя (избежать ошибок)
-                if (file.fsName !== newFile.fsName) {
-                    file.rename(newName);
-                    fileCount++;
-                }
-            }
-            folderCount++;
+function main() {
+    try {
+        var key = getStoredLicenseKey();
+        if (!key) {
+            alert("ОШИБКА АКТИВАЦИИ: Ключ не найден. Перезапустите панель.");
+            return;
         }
+
+        var rootFolder = Folder.selectDialog("Выберите папку с папками детей для переименования");
+        if (!rootFolder) return;
+
+        var folders = rootFolder.getFiles(function(f) { return f instanceof Folder; });
+        
+        if (folders.length === 0) {
+            alert("В выбранной папке нет подпапок!");
+            return;
+        }
+
+        var count = 0;
+        for (var i = 0; i < folders.length; i++) {
+            var currentFolder = folders[i];
+            var folderName = decodeURI(currentFolder.name);
+            var files = currentFolder.getFiles(/\.(jpg|jpeg|png|tif)$/i);
+
+            for (var j = 0; j < files.length; j++) {
+                var file = files[j];
+                var extension = file.name.split('.').pop();
+                var newName = folderName + (files.length > 1 ? "_" + (j + 1) : "") + "." + extension;
+                file.rename(newName);
+                count++;
+            }
+        }
+
+        alert("Готово! Переименовано файлов: " + count);
+
+    } catch (err) {
+        alert("Ошибка в скрипте переименования: " + err);
     }
-    
-    alert("Готово!\nОбработано папок: " + folderCount + "\nПереименовано файлов: " + fileCount);
 }
 
-// Запуск функции
-renameJpegsWithIndex();
+main();
