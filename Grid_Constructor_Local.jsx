@@ -2,15 +2,15 @@
 
 function main() {
     if (app.documents.length === 0) {
-        alert("Создайте пустой документ!");
+        alert("Пожалуйста, создайте или откройте документ в Photoshop.");
         return;
     }
 
-    // Получаем ID от панели (по умолчанию vignette_8)
+    // Параметр selectedPreset передается из HTML-панели
     var presetId = (typeof selectedPreset !== 'undefined') ? selectedPreset : "vignette_8";
     var doc = app.activeDocument;
     
-    // БАЗА ШАБЛОНОВ
+    // БИБЛИОТЕКА ЛОКАЛЬНЫХ ШАБЛОНОВ
     var library = {
         "vignette_8": { total: 8, cols: 4, teacher: "none", tScale: 1.0 },
         "vignette_24_teach_center": { total: 24, cols: 6, teacher: "center", tScale: 1.4 },
@@ -18,9 +18,12 @@ function main() {
     };
 
     var cfg = library[presetId];
-    if (!cfg) { alert("Макет не найден."); return; }
+    if (!cfg) {
+        alert("Макет '" + presetId + "' не найден в локальной библиотеке.");
+        return;
+    }
 
-    doc.suspendHistory("Строим макет: " + presetId, "drawVignette(doc, cfg)");
+    doc.suspendHistory("Локальная генерация: " + presetId, "drawVignette(doc, cfg)");
 }
 
 function drawVignette(doc, cfg) {
@@ -29,7 +32,7 @@ function drawVignette(doc, cfg) {
     var margin = w * 0.08; 
     var curY = margin;
 
-    // Отрисовка учителя
+    // Отрисовка учителя (если есть)
     if (cfg.teacher === "center") {
         var tW = (w / cfg.cols) * cfg.tScale;
         var tH = tW * 1.35;
@@ -37,7 +40,7 @@ function drawVignette(doc, cfg) {
         curY += tH + (h * 0.08);
     }
 
-    // Отрисовка учеников
+    // Отрисовка сетки учеников
     var cellW = (w - margin * 2) / cfg.cols;
     var boxW = cellW * 0.82;
     var boxH = boxW * 1.35;
